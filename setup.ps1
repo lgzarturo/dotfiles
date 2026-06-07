@@ -95,6 +95,29 @@ function Confirm-Step {
     return ($resp -match "^[yY]")
 }
 
+function Install-WingetPackage {
+    param([string]$Id)
+    if ($Script:DryRun) {
+        Log-Info "winget [dry-run]: $Id"
+        return $true
+    }
+    $output = winget install --id $Id --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) {
+        Log-Success "winget: $Id"
+        return $true
+    }
+    # winget devuelve código de salida no-cero cuando el paquete ya está instalado
+    # y no hay actualización disponible. Detectamos este caso por el texto de salida
+    # para no confundirlo con un fallo real.
+    if ($output -match 'ya instalado|ninguna actualizaci') {
+        Log-Skip "$Id"
+        return $true
+    }
+    Log-Warn "winget: falló instalación de $Id"
+    if ($output.Trim()) { Log-Info "winget: $($output.Trim())" }
+    return $false
+}
+
 # ─── Steps ──────────────────────────────────────────────
 $steps = @(
     "preflight",
@@ -169,24 +192,19 @@ if (-not (Test-StepSkipped "windows-update")) {
 if (-not (Test-StepSkipped "core-packages")) {
     Log-Section "Core packages (winget)"
     if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Log-Info "actualizando fuentes de winget..."
+        winget source update --silent 2>&1 | Out-Null
         $pkgs = @(
             "Git.Git",
             "Neovim.Neovim",
             "Microsoft.WindowsTerminal",
             "junegunn.fzf",
             "sharkdp.bat",
-            "BurntSushi.ripgrep",
+            "BurntSushi.ripgrep.MSVC",   # ripgrep para Windows (MSVC runtime)
             "sharkdp.fd"
         )
         foreach ($p in $pkgs) {
-            if (-not $DryRun) {
-                $wingetOutput = winget install --id $p --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-String
-                if ($LASTEXITCODE -ne 0) {
-                    Log-Warn "winget: falló instalación de $p"
-                    if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-                }
-            }
-            Log-Info "winget: $p"
+            Install-WingetPackage $p
         }
     }
     else {
@@ -198,13 +216,7 @@ if (-not (Test-StepSkipped "core-packages")) {
 if (-not (Test-StepSkipped "shell")) {
     Log-Section "Shell (PowerShell + Starship)"
     if (-not (Get-Command starship -ErrorAction SilentlyContinue)) {
-        if (-not $DryRun) {
-            $wingetOutput = winget install --id Starship.Starship --silent 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) {
-                Log-Warn "winget: falló instalación de Starship.Starship"
-                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-            }
-        }
+        Install-WingetPackage "Starship.Starship"
     }
     # Linkear $PROFILE
     $profileSrc = Join-Path $ConfigDir "powershell\Microsoft.PowerShell_profile.ps1"
@@ -214,10 +226,16 @@ if (-not (Test-StepSkipped "shell")) {
     }
     elseif ((Test-Path $profileSrc) -and -not $DryRun) {
         $profileDir = Split-Path $profileDst -Parent
-        if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
-        if (Test-Path $profileDst) { Copy-Item $profileDst "$profileDst.dotfiles-backup" -Force }
-        New-Item -ItemType SymbolicLink -Path $profileDst -Target $profileSrc -Force | Out-Null
-        Log-Success "PowerShell profile enlazado"
+        if ([string]::IsNullOrWhiteSpace($profileDir)) {
+            # Split-Path devuelve "" cuando $PROFILE no contiene componente de directorio
+            Log-Warn "`$PROFILE no contiene directorio ('$profileDst') — enlace omitido"
+        }
+        else {
+            if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
+            if (Test-Path $profileDst) { Copy-Item $profileDst "$profileDst.dotfiles-backup" -Force }
+            New-Item -ItemType SymbolicLink -Path $profileDst -Target $profileSrc -Force | Out-Null
+            Log-Success "PowerShell profile enlazado"
+        }
     }
 }
 
@@ -228,13 +246,7 @@ if (-not (Test-StepSkipped "terminal")) {
         Log-Success "Windows Terminal: ya instalado"
     }
     else {
-        if (-not $DryRun) {
-            $wingetOutput = winget install --id Microsoft.WindowsTerminal --silent 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) {
-                Log-Warn "winget: falló instalación de Microsoft.WindowsTerminal"
-                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-            }
-        }
+        Install-WingetPackage "Microsoft.WindowsTerminal"
     }
 }
 
@@ -247,13 +259,7 @@ if (-not (Test-StepSkipped "multiplexer")) {
     }
     else {
         Log-Warn "tmux nativo Windows: usa WSL para mejor experiencia"
-        if (-not $DryRun) {
-            $wingetOutput = winget install --id Cygwin.Cygwin --silent 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) {
-                Log-Warn "winget: falló instalación de Cygwin.Cygwin"
-                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-            }
-        }
+        Install-WingetPackage "Cygwin.Cygwin"
     }
 }
 
@@ -277,12 +283,8 @@ if (-not (Test-StepSkipped "dev-tools")) {
 # ── 9. runtimes ──
 if (-not (Test-StepSkipped "runtimes")) {
     Log-Section "Runtimes (Node, Python)"
-    if (-not (Get-Command node -ErrorAction SilentlyContinue) -and -not $DryRun) {
-        $wingetOutput = winget install --id OpenJS.NodeJS.LTS --silent 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Log-Warn "winget: falló instalación de OpenJS.NodeJS.LTS"
-            if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-        }
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Install-WingetPackage "OpenJS.NodeJS.LTS"
     }
     if (-not (Get-Command uv -ErrorAction SilentlyContinue) -and -not $DryRun) {
         Log-Info "instalando uv"
@@ -311,12 +313,8 @@ if (-not (Test-StepSkipped "agent-tools")) {
         }
     }
 
-    if ($InstallOllama -and -not $DryRun) {
-        $wingetOutput = winget install --id Ollama.Ollama --silent 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Log-Warn "winget: falló instalación de Ollama.Ollama"
-            if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
-        }
+    if ($InstallOllama) {
+        Install-WingetPackage "Ollama.Ollama"
     }
 
     $agentsDir = "$HOME\agents"
@@ -418,7 +416,7 @@ if (-not (Test-StepSkipped "dotfiles-link")) {
         if ((Test-Path $l.Src) -and -not $DryRun) {
             $dstDir = Split-Path $l.Dst -Parent
             if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
-            if (Test-Path $l.Dst) { Copy-Item $l.Dst "$l.Dst.dotfiles-backup" -Force }
+            if (Test-Path $l.Dst) { Copy-Item $l.Dst "$($l.Dst).dotfiles-backup" -Force }
             New-Item -ItemType SymbolicLink -Path $l.Dst -Target $l.Src -Force | Out-Null
             Log-Success "linked: $($l.Dst)"
         }

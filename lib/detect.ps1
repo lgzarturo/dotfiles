@@ -11,10 +11,9 @@ function Get-DotfilesOS {
         PackageManager = $null
     }
 
-    if (Get-Command wsl -ErrorAction SilentlyContinue) {
-        $wsl = wsl --status 2>&1
-        if ($LASTEXITCODE -eq 0) { $os.IsWSL = $true }
-    }
+    # Este script es PowerShell nativo — nunca corre dentro de WSL.
+    # $os.IsWSL siempre es $false aquí; el flag solo existe por simetría con setup.sh.
+    $os.IsWSL = $false
 
     if (Get-Command winget -ErrorAction SilentlyContinue) { $os.PackageManager = "winget" }
     elseif (Get-Command choco   -ErrorAction SilentlyContinue) { $os.PackageManager = "choco" }
