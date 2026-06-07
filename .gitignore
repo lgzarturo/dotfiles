@@ -1,0 +1,19 @@
+# Generados por setup
+.dotfiles-backup/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+.idea/
+
+# Secrets — NUNCA commitear
+.env
+.env.local
+*.pem
+*.key
+api-keys.txt

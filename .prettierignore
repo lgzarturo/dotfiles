@@ -1,0 +1,10 @@
+# No formatear configs de shell — son sensibles al spacing
+.zshrc
+.gitconfig
+.gitignore_global
+
+# Scripts sin extensión en bin/ (Prettier no los reconoce)
+bin/
+
+# Backups
+.dotfiles-backup/
