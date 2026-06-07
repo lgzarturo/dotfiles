@@ -37,12 +37,19 @@ DOTFILES_BACKUP_DIR="${DOTFILES_BACKUP_DIR:-$HOME/.dotfiles-backup/$(date +%Y%m%
 # shellcheck source=lib/agent-tools.sh
 . "$LIB_DIR/agent-tools.sh"
 
+# ─── Version ────────────────────────────────────────────────
+DOTFILES_VERSION="unknown"
+if [ -f "$SCRIPT_DIR/VERSION" ]; then
+  DOTFILES_VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
+fi
+
 # ─── Banner ────────────────────────────────────────────────
 banner() {
-  cat <<'EOF'
+  cat <<EOF
 
   ┌───────────────────────────────────────────────┐
-  │  dotfiles-agentic — entorno agentico portable  │
+  │  dotfiles v${DOTFILES_VERSION}                │
+  │  entorno agentico portable                    │
   └───────────────────────────────────────────────┘
 
 EOF

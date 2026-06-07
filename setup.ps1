@@ -27,11 +27,18 @@ $BinDir = Join-Path $ScriptDir "bin"
 . (Join-Path $LibDir "detect.ps1")
 . (Join-Path $LibDir "logger.ps1")
 
+# ─── Version ──────────────────────────────────────────────
+$DotfilesVersion = "unknown"
+$versionFile = Join-Path $ScriptDir "VERSION"
+if (Test-Path $versionFile) {
+    $DotfilesVersion = (Get-Content $versionFile -Raw).Trim()
+}
+
 # ─── Banner ──────────────────────────────────────────────
 Write-Host @"
 
   +-----------------------------------------------+
-  |  dotfiles-agentic (Windows)                   |
+  |  dotfiles (Windows) v$DotfilesVersion         |
   +-----------------------------------------------+
 
 "@ -ForegroundColor Magenta
