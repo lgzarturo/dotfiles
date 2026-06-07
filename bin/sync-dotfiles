@@ -9,7 +9,7 @@ action="${1:-status}"
 
 case "$action" in
   push)
-    git add -A
+    git add -u
     git commit -m "sync: $(date +%Y-%m-%d_%H:%M:%S)" || true
     git push
     ;;

@@ -14,7 +14,7 @@ declare -a missing=()
 check() {
   local name="$1"
   local cmd="${2:-command -v $1}"
-  if eval "$cmd" >/dev/null 2>&1; then
+  if bash -c "$cmd" >/dev/null 2>&1; then
     log_success "$name"
     pass=$((pass+1))
   else
@@ -49,7 +49,7 @@ check "git-delta" "command -v delta"
 
 # Multiplexer
 check "tmux" "command -v tmux"
-check "tpm" "[ -d $HOME/.tmux/plugins/tpm ]"
+check "tpm" "[ -d \"$HOME/.tmux/plugins/tpm\" ]"
 
 # Terminal
 check "kitty" "command -v kitty"
@@ -65,13 +65,13 @@ check "mise" "command -v mise"
 # Agentic
 check "claude" "command -v claude"
 check "ollama" "command -v ollama"
-check "agents dir" "[ -d $HOME/agents ]"
+check "agents dir" "[ -d \"$HOME/agents\" ]"
 
 # Configs linkeados
-check "~/.zshrc linked" "[ -L $HOME/.zshrc ] || [ -f $HOME/.zshrc ]"
-check "~/.tmux.conf linked" "[ -L $HOME/.tmux.conf ] || [ -f $HOME/.tmux.conf ]"
-check "kitty.conf" "[ -f $HOME/.config/kitty/kitty.conf ]"
-check "starship.toml" "[ -f $HOME/.config/starship.toml ]"
+check "~/.zshrc linked" "[ -L \"$HOME/.zshrc\" ] || [ -f \"$HOME/.zshrc\" ]"
+check "~/.tmux.conf linked" "[ -L \"$HOME/.tmux.conf\" ] || [ -f \"$HOME/.tmux.conf\" ]"
+check "kitty.conf" "[ -f \"$HOME/.config/kitty/kitty.conf\" ]"
+check "starship.toml" "[ -f \"$HOME/.config/starship.toml\" ]"
 
 # System tweaks (Linux)
 if [ "$(uname -s)" = "Linux" ]; then

@@ -130,6 +130,9 @@ step_preflight() {
   if [ "$DOTFILES_OS" = "linux" ] && [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
     log_fatal "linux sin root y sin sudo — abortando"
   fi
+  if [ "$DOTFILES_OS" = "macos" ] && [ "$(id -u)" -ne 0 ] && ! command -v sudo >/dev/null 2>&1; then
+    log_warn "macOS sin sudo — trimforce y operaciones del sistema no disponibles"
+  fi
 
   # Network
   if ! curl -sSf -m 5 https://github.com >/dev/null 2>&1; then
@@ -140,9 +143,10 @@ step_preflight() {
   fi
 
   # Disco mínimo
-  local free_gb
-  free_gb="$(df -BG "$HOME" | awk 'NR==2 {print $4}' | tr -d 'G')"
-  if [ -n "$free_gb" ] && [ "$free_gb" -lt 5 ]; then
+  local free_kb free_gb
+  free_kb="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2 {print $4}')"
+  free_gb=$((free_kb / 1024 / 1024))
+  if [ -n "$free_kb" ] && [ "$free_gb" -lt 5 ]; then
     log_warn "poco espacio en $HOME: ${free_gb}GB libres"
   fi
 
@@ -189,7 +193,7 @@ step_system_update() {
     linux)
       log_info "actualizando paquetes del sistema"
       pkg_update
-      sudo_run $DOTFILES_PKG_MANAGER upgrade -y || log_warn "upgrade parcial"
+      sudo_run "$DOTFILES_PKG_MANAGER" upgrade -y || log_warn "upgrade parcial"
       ;;
     macos)
       log_info "macOS: omitiendo (no se actualiza el SO vía brew)"
@@ -257,7 +261,15 @@ step_shell() {
   if ! command -v starship >/dev/null 2>&1; then
     log_info "instalando Starship"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      curl -sS https://starship.rs/install.sh | sh -s -- -y
+      local tmp
+      tmp="$(mktemp)"
+      if curl -fsSL https://starship.rs/install.sh -o "$tmp"; then
+        sh "$tmp" -s -- -y
+        rm -f "$tmp"
+      else
+        rm -f "$tmp"
+        log_warn "falló descarga de Starship"
+      fi
     fi
   fi
 
@@ -265,7 +277,15 @@ step_shell() {
   if [ ! -d "$HOME/.local/share/zap" ]; then
     log_info "instalando Zap (zsh plugin manager)"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      zsh -c "$(curl -fsSL https://raw.githubusercontent.com/zap-zsh/zap/main/install.sh)" "" --silent
+      local tmp
+      tmp="$(mktemp)"
+      if curl -fsSL https://raw.githubusercontent.com/zap-zsh/zap/main/install.sh -o "$tmp"; then
+        zsh "$tmp" "" --silent
+        rm -f "$tmp"
+      else
+        rm -f "$tmp"
+        log_warn "falló descarga de Zap"
+      fi
     fi
   fi
 
@@ -319,10 +339,14 @@ _install_nerd_font() {
   log_info "descargando JetBrains Mono Nerd Font"
   local tmp
   tmp="$(mktemp -d)"
-  (cd "$tmp" && \
-    curl -sL -o jbm.zip https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip && \
-    unzip -qo jbm.zip -d "$font_dir" && \
-    rm jbm.zip) || log_warn "falló descarga de Nerd Font (puedes hacerlo manual)"
+  curl -fsSL -o "$tmp/jbm.zip" https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip || log_warn "falló descarga de Nerd Font (puedes hacerlo manual)"
+  if [ -f "$tmp/jbm.zip" ]; then
+    if unzip -tq "$tmp/jbm.zip" >/dev/null 2>&1; then
+      unzip -qo "$tmp/jbm.zip" -d "$font_dir" || log_warn "falló extracción de Nerd Font"
+    else
+      log_warn "Nerd Font zip corrupto"
+    fi
+  fi
   rm -rf "$tmp"
   if command -v fc-cache >/dev/null 2>&1; then
     fc-cache -fv >/dev/null 2>&1
@@ -340,7 +364,7 @@ step_multiplexer() {
   fi
 
   # TPM
-  [ -d "$HOME/.tmux/plugins/tpm" ] || git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+  [ -d "$HOME/.tmux/plugins/tpm" ] || git clone --depth 1 https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
 
   _link_config "$CONFIG_DIR/tmux/.tmux.conf" "$HOME/.tmux.conf"
   log_success "tmux + TPM"
@@ -354,7 +378,7 @@ step_dev_tools() {
   case "$DOTFILES_OS" in
     linux)
       case "$DOTFILES_DISTRO" in
-        fedora|*)
+        fedora|rhel|centos|rocky|almalinux)
           pkg_install \
             ripgrep fd-find bat eza zoxide fzf btop duf dust \
             tldr neovim git-delta lazygit \
@@ -407,7 +431,15 @@ step_runtimes() {
   if ! command -v mise >/dev/null 2>&1; then
     log_info "instalando mise"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      curl https://mise.run | sh
+      local tmp
+      tmp="$(mktemp)"
+      if curl -fsSL https://mise.run -o "$tmp"; then
+        sh "$tmp"
+        rm -f "$tmp"
+      else
+        rm -f "$tmp"
+        log_warn "falló descarga de mise"
+      fi
     fi
   fi
   export PATH="$HOME/.local/bin:$PATH"
@@ -421,7 +453,15 @@ step_runtimes() {
   if ! command -v uv >/dev/null 2>&1; then
     log_info "instalando uv"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      curl -LsSf https://astral.sh/uv/install.sh | sh
+      local tmp
+      tmp="$(mktemp)"
+      if curl -fsSL https://astral.sh/uv/install.sh -o "$tmp"; then
+        sh "$tmp"
+        rm -f "$tmp"
+      else
+        rm -f "$tmp"
+        log_warn "falló descarga de uv"
+      fi
     fi
   fi
 
@@ -659,9 +699,12 @@ main() {
   esac
 
   # Optimizaciones
-  apply_sysctl_tuning
-  apply_ssd_tuning
-  apply_ram_tuning
+  step_sysctl() { should_run sysctl || return 0; apply_sysctl_tuning; }
+  step_ssd()    { should_run ssd    || return 0; apply_ssd_tuning; }
+  step_ram()    { should_run ram    || return 0; apply_ram_tuning; }
+  step_sysctl
+  step_ssd
+  step_ram
   step_network
 
   step_dotfiles_link

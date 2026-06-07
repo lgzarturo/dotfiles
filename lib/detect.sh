@@ -80,9 +80,8 @@ detect_os() {
       fi
 
       # Default shell
-      DOTFILES_SHELL_DEFAULT="$(getent passwd "$USER" 2>/dev/null | cut -d: -f7)"
+      DOTFILES_SHELL_DEFAULT="$(getent passwd "$USER" 2>/dev/null | cut -d: -f7 || grep "^${USER}:" /etc/passwd 2>/dev/null | cut -d: -f7)"
       [ -z "$DOTFILES_SHELL_DEFAULT" ] && DOTFILES_SHELL_DEFAULT="$(basename "$SHELL")"
-      # Si el resultado aún tiene path completo, basificar
       DOTFILES_SHELL_DEFAULT="$(basename "$DOTFILES_SHELL_DEFAULT")"
       ;;
 

@@ -9,12 +9,23 @@ DOTFILES_FSTAB_MARKER="# dotfiles-agentic: noatime/nodiratime"
 DOTFILES_UDEV_RULE="/etc/udev/rules.d/60-ioschedulers.rules"
 
 apply_ssd_tuning() {
+  log_section "SSD/NVMe Tuning"
+
+  # ── macOS: TRIM para SSD no-Apple ──────────────────────
+  if [ "$DOTFILES_OS" = "macos" ]; then
+    if [ "$DOTFILES_DRY_RUN" = "true" ]; then
+      log_info "[dry-run] activaría TRIM en SSD no-Apple"
+    else
+      sudo_run trimforce --enable 2>/dev/null || log_warn "trimforce no disponible o falló (macOS)"
+      log_success "trimforce checked (macOS)"
+    fi
+    return 0
+  fi
+
   if [ "$DOTFILES_OS" != "linux" ]; then
     log_skip "SSD tune (no aplica en $DOTFILES_OS)"
     return 0
   fi
-
-  log_section "SSD/NVMe Tuning"
 
   # ── 1. TRIM periódico ──────────────────────────────────
   case "$DOTFILES_INIT_SYSTEM" in
@@ -62,7 +73,7 @@ EOF
           else
             echo mq-deadline | sudo_run tee "$sched_file" >/dev/null
           fi
-          log_success "scheduler: $devname → $(cat "$sched_file" 2>/dev/null | grep -oP '\[\K[^\]]+' || echo unknown)"
+          log_success "scheduler: $devname → $(cat "$sched_file" 2>/dev/null | awk -F'[][]' '{print $2}' || echo unknown)"
         fi
       done
 
@@ -103,13 +114,4 @@ EOF
     log_debug "fstab ya optimizado"
   fi
 
-  # ── 4. macOS específico ──────────────────────────────
-  if [ "$DOTFILES_OS" = "macos" ]; then
-    if [ "$DOTFILES_DRY_RUN" = "true" ]; then
-      log_info "[dry-run] activaría TRIM en SSD no-Apple"
-    else
-      sudo_run trimforce --enable 2>/dev/null || true
-      log_success "trimforce checked (macOS)"
-    fi
-  fi
 }

@@ -108,6 +108,10 @@ kernel.pid_max = 4194304
 kernel.threads-max = 4194304
 EOF
 
-  sudo_run sysctl --system >/dev/null 2>&1
+  if [ "$DOTFILES_INIT_SYSTEM" = "systemd" ]; then
+    sudo_run sysctl --system >/dev/null 2>&1
+  else
+    sudo_run sysctl -p "$DOTFILES_SYSCTL_FILE" >/dev/null 2>&1
+  fi
   log_success "sysctl tune aplicado a $DOTFILES_SYSCTL_FILE"
 }

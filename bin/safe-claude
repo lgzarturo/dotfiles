@@ -15,16 +15,22 @@ if ! command -v claude >/dev/null 2>&1; then
   exit 1
 fi
 
-exec bwrap \
-  --ro-bind /usr /usr \
-  --ro-bind /lib /lib \
-  --ro-bind /lib64 /lib64 \
-  --ro-bind /etc/resolv.conf /etc/resolv.conf \
-  --bind "$PWD" "$PWD" \
-  --dev /dev \
-  --tmpfs /tmp \
-  --proc /proc \
-  --unshare-net-priv \
-  --die-with-parent \
-  --new-session \
-  claude "$@"
+bwrap_args=(
+  --ro-bind /usr /usr
+  --dev /dev
+  --tmpfs /tmp
+  --proc /proc
+  --ro-bind /etc/resolv.conf /etc/resolv.conf
+  --bind "$PWD" "$PWD"
+  --unshare-net-priv
+  --die-with-parent
+  --new-session
+)
+
+for lib_dir in /lib /lib64 /usr/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+  if [ -d "$lib_dir" ]; then
+    bwrap_args+=(--ro-bind "$lib_dir" "$lib_dir")
+  fi
+done
+
+exec bwrap "${bwrap_args[@]}" claude "$@"

@@ -5,7 +5,7 @@
 pkg_update() {
   case "$DOTFILES_PKG_MANAGER" in
     dnf|dnf5)
-      sudo_run $DOTFILES_PKG_MANAGER check-update -y >/dev/null 2>&1 || true
+      sudo_run "$DOTFILES_PKG_MANAGER" check-update -y >/dev/null 2>&1 || true
       ;;
     apt)
       sudo_run apt-get update -qq
@@ -35,7 +35,7 @@ pkg_install() {
 
   case "$DOTFILES_PKG_MANAGER" in
     dnf|dnf5)
-      sudo_run $DOTFILES_PKG_MANAGER install -y "${pkgs[@]}"
+      sudo_run "$DOTFILES_PKG_MANAGER" install -y "${pkgs[@]}"
       ;;
     apt)
       sudo_run apt-get install -y --no-install-recommends "${pkgs[@]}"

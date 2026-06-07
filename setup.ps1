@@ -66,6 +66,10 @@ function Test-StepSkipped {
     return $false
 }
 
+function Test-IsAdmin {
+    return $os.IsAdmin
+}
+
 function Confirm-Step {
     param([string]$Prompt, [string]$Default = "y")
     if ($Script:DryRun) { return $true }
@@ -95,7 +99,7 @@ $steps = @(
     "post-install"
 )
 
-if (-not $DryRun -and -not $AssumeYes) {
+if (-not $Script:DryRun -and -not $Script:AssumeYes) {
     $resp = Read-Host "continuar con la instalación? [Y/n]"
     if ($resp -match "^[nN]") { exit 1 }
 }
@@ -161,6 +165,7 @@ if (-not (Test-StepSkipped "core-packages")) {
         foreach ($p in $pkgs) {
             if (-not $DryRun) {
                 winget install --id $p --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) { Log-Warn "winget: falló instalación de $p" }
             }
             Log-Info "winget: $p"
         }
@@ -243,7 +248,17 @@ if (-not (Test-StepSkipped "runtimes")) {
     }
     if (-not (Get-Command uv -ErrorAction SilentlyContinue) -and -not $DryRun) {
         Log-Info "instalando uv"
-        Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+        $uvTmp = Join-Path $env:TEMP "uv-install.ps1"
+        try {
+            Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -OutFile $uvTmp -UseBasicParsing
+            & $uvTmp
+        }
+        catch {
+            Log-Warn "falló descarga de uv"
+        }
+        finally {
+            Remove-Item $uvTmp -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -281,12 +296,16 @@ if (-not (Test-StepSkipped "windows-tweaks")) {
         powercfg /setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c 2>&1 | Out-Null
         Log-Info "plan de energía: Alto rendimiento"
 
-        # Desactivar Cortana / telemetría no esencial
-        # (esto es conservador — puedes revertir)
-        $telemetryPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
-        if (-not (Test-Path $telemetryPath)) { New-Item -Path $telemetryPath -Force | Out-Null }
-        Set-ItemProperty -Path $telemetryPath -Name AllowTelemetry -Value 0
-        Log-Info "telemetría: mínima"
+        # Desactivar telemetría no esencial (requiere admin)
+        if (Test-IsAdmin) {
+            $telemetryPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection"
+            if (-not (Test-Path $telemetryPath)) { New-Item -Path $telemetryPath -Force | Out-Null }
+            Set-ItemProperty -Path $telemetryPath -Name AllowTelemetry -Value 0
+            Log-Info "telemetría: mínima"
+        }
+        else {
+            Log-Warn "telemetría: omitido (requiere administrador)"
+        }
     }
 }
 
@@ -294,16 +313,21 @@ if (-not (Test-StepSkipped "windows-tweaks")) {
 if (-not (Test-StepSkipped "ssd")) {
     Log-Section "SSD optimization"
     if (-not $DryRun) {
-        # TRIM optimization
-        fsutil behavior query DisableDeleteNotify
-        Log-Info "TRIM status arriba (0=TRIM activo)"
+        if (Test-IsAdmin) {
+            # TRIM optimization
+            fsutil behavior query DisableDeleteNotify
+            Log-Info "TRIM status arriba (0=TRIM activo)"
 
-        # Disable Superfetch/SysMain en SSD
-        $sysmain = Get-Service -Name SysMain -ErrorAction SilentlyContinue
-        if ($sysmain -and $sysmain.Status -eq "Running") {
-            Stop-Service -Name SysMain -Force
-            Set-Service -Name SysMain -StartupType Disabled
-            Log-Info "SysMain (Superfetch) desactivado en SSD"
+            # Disable Superfetch/SysMain en SSD
+            $sysmain = Get-Service -Name SysMain -ErrorAction SilentlyContinue
+            if ($sysmain -and $sysmain.Status -eq "Running") {
+                Stop-Service -Name SysMain -Force
+                Set-Service -Name SysMain -StartupType Disabled
+                Log-Info "SysMain (Superfetch) desactivado en SSD"
+            }
+        }
+        else {
+            Log-Warn "SSD: omitido (fsutil y SysMain requieren administrador)"
         }
     }
 }
@@ -328,11 +352,16 @@ if (-not (Test-StepSkipped "ram")) {
 if (-not (Test-StepSkipped "network")) {
     Log-Section "Network tuning"
     if (-not $DryRun) {
-        # TCP optimizations vía netsh
-        netsh int tcp set global autotuninglevel=normal
-        netsh int tcp set global chimney=disabled
-        netsh int tcp set global rss=enabled
-        Log-Success "TCP tuning aplicado"
+        if (Test-IsAdmin) {
+            # TCP optimizations vía netsh
+            netsh int tcp set global autotuninglevel=normal
+            netsh int tcp set global chimney=disabled
+            netsh int tcp set global rss=enabled
+            Log-Success "TCP tuning aplicado"
+        }
+        else {
+            Log-Warn "network: omitido (netsh requiere administrador)"
+        }
     }
 }
 

@@ -54,11 +54,20 @@ ensure_ollama() {
   case "$DOTFILES_OS" in
     linux|macos)
       if [ "$DOTFILES_DRY_RUN" = "true" ]; then
-        log_info "[dry-run] curl https://ollama.ai/install.sh | sh"
+        log_info "[dry-run] descargaría e instalaría Ollama"
         return 0
       fi
-      curl -fsSL https://ollama.ai/install.sh | sh
-      log_success "Ollama instalado"
+      local tmp
+      tmp="$(mktemp)"
+      if curl -fsSL https://ollama.com/install.sh -o "$tmp"; then
+        sh "$tmp"
+        rm -f "$tmp"
+        log_success "Ollama instalado"
+      else
+        rm -f "$tmp"
+        log_warn "falló descarga de Ollama"
+        return 1
+      fi
       ;;
     *)
       log_warn "Ollama no soportado en $DOTFILES_OS"
