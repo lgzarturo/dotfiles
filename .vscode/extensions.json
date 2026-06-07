@@ -1,0 +1,36 @@
+{
+  // Extensiones recomendadas para el repo dotfiles-agentic.
+  // VSCode las sugerirá automáticamente al abrir el workspace.
+  "recommendations": [
+    // --- Shell / Bash ---
+    "timonwong.shellcheck", // Linter para scripts .sh
+    "foxundermoon.shell-format", // Formatter para shell scripts
+    "mkhl.shfmt", // shfmt integrado
+
+    // --- PowerShell ---
+    "ms-vscode.powershell", // Soporte completo .ps1
+
+    // --- TOML (starship.toml) ---
+    "tamasfe.even-better-toml", // Syntax + schema validation
+
+    // --- Markdown ---
+    "yzhang.markdown-all-in-one", // TOC, preview, shortcuts
+    "DavidAnson.vscode-markdownlint", // Linter de Markdown
+    "bierner.markdown-preview-github-styles", // Preview estilo GitHub
+
+    // --- EditorConfig + Prettier ---
+    "EditorConfig.EditorConfig", // Aplica .editorconfig automáticamente
+    "esbenp.prettier-vscode", // Formatter (Markdown, YAML, JSON)
+
+    // --- Git ---
+    "eamodio.gitlens", // Historial, blame, comparación
+    "mhutchie.git-graph", // Visualización del grafo de commits
+
+    // --- YAML (configs opcionales) ---
+    "redhat.vscode-yaml",
+
+    // --- Utilidades generales ---
+    "streetsidesoftware.code-spell-checker", // Spellcheck
+    "streetsidesoftware.code-spell-checker-spanish" // Diccionario ES
+  ]
+}

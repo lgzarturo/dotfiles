@@ -1,0 +1,105 @@
+{
+  // ─────────────────────────────────────────────
+  // Workspace settings — dotfiles-agentic
+  // ─────────────────────────────────────────────
+
+  // --- Editor base ---
+  "editor.formatOnSave": true,
+  "editor.formatOnPaste": false,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "editor.rulers": [80],
+  "editor.wordWrap": "off",
+  "editor.renderWhitespace": "boundary",
+  "editor.trimAutoWhitespace": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+
+  // --- Prettier como formatter por defecto ---
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // --- Overrides por tipo de archivo ---
+  "[shellscript]": {
+    "editor.defaultFormatter": "foxundermoon.shell-format",
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true
+  },
+  "[powershell]": {
+    "editor.defaultFormatter": "ms-vscode.powershell",
+    "editor.tabSize": 4,
+    "editor.formatOnSave": true
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml",
+    "editor.formatOnSave": true
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.wordWrap": "wordWrapColumn",
+    "editor.wordWrapColumn": 80,
+    "editor.rulers": [80],
+    "editor.formatOnSave": true,
+    "files.trimTrailingWhitespace": false // Markdown usa trailing spaces para <br>
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml",
+    "editor.tabSize": 2
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2
+  },
+
+  // --- ShellCheck ---
+  "shellcheck.enable": true,
+  "shellcheck.run": "onSave",
+  "shellcheck.executablePath": "shellcheck",
+
+  // --- shell-format (shfmt) ---
+  "shellformat.effectLanguages": ["shellscript", "dotenv"],
+  "shellformat.flag": "-i 2 -ci", // indent 2, case indent
+
+  // --- Markdownlint ---
+  "markdownlint.config": {
+    "MD013": { "line_length": 80 }, // line length = 80
+    "MD033": false // permite HTML inline
+  },
+
+  // --- TOML ---
+  "evenBetterToml.formatter.columnWidth": 80,
+
+  // --- GitLens ---
+  "gitlens.codeLens.enabled": false, // evita ruido visual
+  "gitlens.currentLine.enabled": true,
+
+  // --- Spellcheck ---
+  "cSpell.language": "es,en",
+  "cSpell.enabledLanguageIds": [
+    "markdown",
+    "shellscript",
+    "powershell",
+    "yaml"
+  ],
+
+  // --- Archivos sin extensión en bin/ → shell ---
+  "files.associations": {
+    "**/bin/agent-log": "shellscript",
+    "**/bin/new-agent-project": "shellscript",
+    "**/bin/safe-claude": "shellscript",
+    "**/bin/sync-dotfiles": "shellscript",
+    ".zshrc": "shellscript",
+    ".gitconfig": "properties"
+  },
+
+  // --- Excluir ruido del Explorer ---
+  "files.exclude": {
+    "**/.git": true,
+    "**/.dotfiles-backup": true
+  },
+  "cSpell.words": ["linkeados"]
+}
