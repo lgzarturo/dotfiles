@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# safe-claude — lanza Claude Code dentro de un sandbox bubblewrap
+# Uso: safe-claude [args...]
+
+set -euo pipefail
+
+if ! command -v bwrap >/dev/null 2>&1; then
+  echo "error: bubblewrap (bwrap) no está instalado" >&2
+  echo "instala con: sudo dnf install -y bubblewrap / sudo apt install -y bubblewrap" >&2
+  exit 1
+fi
+
+if ! command -v claude >/dev/null 2>&1; then
+  echo "error: claude no está instalado" >&2
+  exit 1
+fi
+
+exec bwrap \
+  --ro-bind /usr /usr \
+  --ro-bind /lib /lib \
+  --ro-bind /lib64 /lib64 \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \
+  --bind "$PWD" "$PWD" \
+  --dev /dev \
+  --tmpfs /tmp \
+  --proc /proc \
+  --unshare-net-priv \
+  --die-with-parent \
+  --new-session \
+  claude "$@"

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# agent-log — inicia sesión de Claude con logging persistente
+# Uso: agent-log [nombre]
+
+set -euo pipefail
+name="${1:-agent-$(date +%Y%m%d-%H%M%S)}"
+
+agents_dir="${AGENTS_DIR:-$HOME/agents}"
+log_dir="$agents_dir/memory/logs/$name"
+mkdir -p "$log_dir"
+cd "$log_dir"
+[ -d .git ] || git init -q
+
+# Notas del contexto
+[ -f README.md ] || cat > README.md <<EOF
+# Session $name
+- Inicio: $(date -Iseconds)
+- Host: $(hostname)
+EOF
+
+# Lanza tmux con script que registra todo
+tmux new-session -d -s "$name" -c "$PWD" || {
+  echo "error: ya existe sesión tmux '$name'" >&2
+  exit 1
+}
+
+tmux send-keys -t "$name" "script -f output.log" Enter
+sleep 0.5
+tmux send-keys -t "$name" "claude" Enter
+
+tmux attach -t "$name"

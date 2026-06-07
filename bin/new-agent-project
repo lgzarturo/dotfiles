@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# new-agent-project — crea un nuevo proyecto agentico en ~/agents/workspaces
+# Uso: new-agent-project <name> [template]
+
+set -euo pipefail
+name="${1:?usage: new-agent-project <name> [template]}"
+template="${2:-default}"
+
+agents_dir="${AGENTS_DIR:-$HOME/agents}"
+target="$agents_dir/workspaces/$name"
+template_dir="$agents_dir/templates/$template"
+
+if [ -d "$target" ]; then
+  echo "error: $target ya existe" >&2
+  exit 1
+fi
+
+mkdir -p "$target"
+
+if [ -d "$template_dir" ] && [ "$template" != "default" ]; then
+  cp -r "$template_dir/." "$target/" 2>/dev/null || true
+fi
+
+cd "$target"
+git init -q
+git add -A 2>/dev/null || true
+git commit -q -m "init: $name ($template)" 2>/dev/null || true
+
+echo "✓ proyecto creado en $target"
+
+# Ofrece lanzar Claude en tmux
+if command -v tmux >/dev/null 2>&1 && command -v claude >/dev/null 2>&1; then
+  read -rp "¿lanzar Claude en tmux ahora? [y/N] " r
+  case "$r" in
+    [yY]*)
+      tmux new-session -d -s "$name" -c "$target"
+      tmux send-keys -t "$name" 'clear && claude' Enter
+      tmux attach -t "$name"
+      ;;
+  esac
+fi

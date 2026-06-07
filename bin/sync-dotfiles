@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# sync-dotfiles — push/pull del repo de dotfiles
+# Uso: sync-dotfiles [push|pull|status]
+
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+action="${1:-status}"
+
+case "$action" in
+  push)
+    git add -A
+    git commit -m "sync: $(date +%Y-%m-%d_%H:%M:%S)" || true
+    git push
+    ;;
+  pull)
+    git pull --rebase --autostash
+    ;;
+  status)
+    git status
+    echo
+    echo "último commit: $(git log -1 --oneline 2>/dev/null || echo ninguno)"
+    echo "branch: $(git branch --show-current 2>/dev/null || echo detached)"
+    ;;
+  *)
+    echo "uso: $0 [push|pull|status]" >&2
+    exit 1
+    ;;
+esac
