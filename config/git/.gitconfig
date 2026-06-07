@@ -1,0 +1,37 @@
+[user]
+	name = Tu Nombre
+	email = tu@email.com
+
+[core]
+	editor = nvim
+	pager = delta
+	excludesfile = ~/.gitignore_global
+	autocrlf = input
+	safecrlf = warn
+
+[delta]
+	navigate = true
+	light = false
+	line-numbers = true
+	side-by-side = true
+
+[init]
+	defaultBranch = main
+
+[pull]
+	rebase = true
+
+[push]
+	autoSetupRemote = true
+
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+	unstage = reset HEAD --
+	last = log -1 HEAD
+	visual = log --graph --decorate --oneline --all
+	lg = log --oneline --graph --decorate --all
+	amend = commit --amend --no-edit
+	wip = commit -am "wip: $(date +%H:%M:%S)"

@@ -1,0 +1,35 @@
+# ─── Starship config — dotfiles ────
+# Preset gruvbox-rainbow como base, ajustado
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[✗](bold red)"
+
+[directory]
+style = "blue"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+symbol = " "
+style = "bold purple"
+
+[nodejs]
+symbol = " "
+
+[python]
+symbol = " "
+
+[memory_usage]
+disabled = false
+threshold = 75
+style = "bold dimmed yellow"
+
+[cmd_duration]
+min_time = 2_000
+format = " took [$duration](bold yellow)"
+
+[time]
+disabled = false
+format = "[$time]($style) "
+style = "dimmed white"
