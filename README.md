@@ -1,4 +1,4 @@
-# 🛠️ dotfiles-agentic
+# 🛠️ dotfiles
 
 Configuración integral y portable para entorno de desarrollo agentico (Claude
 Code, Ollama, etc.). Soporta: **Fedora / Ubuntu / macOS / Windows 11 (WSL2
@@ -19,7 +19,7 @@ y optimizaciones específicas para SSD, RAM, CPU y red.
 
 ## 📁 Estructura
 
-```
+```text
 dotfiles/
 ├── setup.sh              # entry point Unix (Linux/macOS/WSL)
 ├── setup.ps1             # entry point Windows (PowerShell nativo)
@@ -132,7 +132,7 @@ Verifica que cada componente quedó instalado y configurado correctamente.
 
 ## ⚖️ Licencia
 
-MIT
+[MIT](LICENSE)
 
 ## Autor
 
