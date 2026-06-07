@@ -21,6 +21,17 @@ DOTFILES_ONLY="${DOTFILES_ONLY:-}"
 DOTFILES_INSTALL_OLLAMA="${DOTFILES_INSTALL_OLLAMA:-false}"
 DOTFILES_BACKUP_DIR="${DOTFILES_BACKUP_DIR:-$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)}"
 
+# ─── Normaliza line endings (CRLF → LF) ────────────────────
+# Necesario cuando el repo se checkout en Windows con core.autocrlf=true
+# y los scripts se ejecutan desde WSL vía /mnt/c/... —
+# bash falla con `$'\r': command not found` en cualquier línea con CRLF.
+if command -v sed >/dev/null 2>&1; then
+  for _f in "$LIB_DIR"/*.sh; do
+    [ -f "$_f" ] && sed -i 's/\r$//' "$_f" 2>/dev/null || true
+  done
+  unset _f
+fi
+
 # ─── Carga librerías ───────────────────────────────────────
 # shellcheck source=lib/logger.sh
 . "$LIB_DIR/logger.sh"

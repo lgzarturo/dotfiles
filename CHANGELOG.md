@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - `winget source update` before the core-packages loop in `setup.ps1` to ensure the local package catalog is current.
 
 ### Fixed
+- **`setup.sh` — `$'\r': command not found` en WSL**: cuando el repo se clona en Windows con `core.autocrlf=true`, los scripts `lib/*.sh` quedan con CRLF en disco y bash falla al cargarlos vía `/mnt/c/...`. Se añade un bucle `sed -i 's/\r$//'` en `setup.sh` antes de cualquier `source`, normalizando todos los scripts de lib en tiempo de ejecución como red de seguridad.
 - **`setup.ps1` — winget false-negative WARNs**: packages already installed and up to date were incorrectly logged as failures. Fixed by detecting "ya instalado / ninguna actualización" in winget output.
 - **`setup.ps1` — `BurntSushi.ripgrep` package not found**: corrected winget ID to `BurntSushi.ripgrep.MSVC` (the correct community package for Windows).
 - **`setup.ps1` — `Cannot bind argument to parameter 'Path' because it is an empty string`**: `Split-Path -Parent` returns `""` for bare filenames; added null guard before `New-Item` in the shell/profile linking step.
