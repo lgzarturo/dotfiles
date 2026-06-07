@@ -1,7 +1,6 @@
 # lib/logger.ps1 — logging con colores para Windows PowerShell
 
 $Script:LogFile = $null
-$Script:DryRun = $false
 
 function Log-Trace { param([string]$Msg) Log-Write "TRACE" $Msg Cyan }
 function Log-Debug { param([string]$Msg) Log-Write "DEBUG" $Msg Cyan }

@@ -47,7 +47,16 @@ Write-Host @"
 $os = Get-DotfilesOS
 $hw = Get-DotfilesHardware
 
-Write-Host $hw
+Write-Host @"
+
+  Hardware:
+    CPU      : $($hw.CpuModel) ($($hw.CpuProfile), $($hw.CpuCores)c/$($hw.CpuThreads)t)
+    RAM      : $($hw.RamGB) GB
+    GPU      : $(if ($hw.GpuName) { $hw.GpuName } else { 'not detected' })
+    Storage  : $(if ($hw.StorageType) { $hw.StorageType.ToUpper() } else { 'UNKNOWN' })
+    Form     : $(if ($hw.IsLaptop) { 'Laptop' } else { 'Desktop' })
+
+"@ -ForegroundColor Cyan
 
 if ($DryRun) { $Script:DryRun = $true } else { $Script:DryRun = $false }
 if ($Yes) { $Script:AssumeYes = $true } else { $Script:AssumeYes = $false }
@@ -171,8 +180,11 @@ if (-not (Test-StepSkipped "core-packages")) {
         )
         foreach ($p in $pkgs) {
             if (-not $DryRun) {
-                winget install --id $p --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
-                if ($LASTEXITCODE -ne 0) { Log-Warn "winget: falló instalación de $p" }
+                $wingetOutput = winget install --id $p --silent --accept-source-agreements --accept-package-agreements 2>&1 | Out-String
+                if ($LASTEXITCODE -ne 0) {
+                    Log-Warn "winget: falló instalación de $p"
+                    if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+                }
             }
             Log-Info "winget: $p"
         }
@@ -187,13 +199,20 @@ if (-not (Test-StepSkipped "shell")) {
     Log-Section "Shell (PowerShell + Starship)"
     if (-not (Get-Command starship -ErrorAction SilentlyContinue)) {
         if (-not $DryRun) {
-            winget install --id Starship.Starship --silent 2>&1 | Out-Null
+            $wingetOutput = winget install --id Starship.Starship --silent 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Log-Warn "winget: falló instalación de Starship.Starship"
+                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+            }
         }
     }
     # Linkear $PROFILE
     $profileSrc = Join-Path $ConfigDir "powershell\Microsoft.PowerShell_profile.ps1"
     $profileDst = $PROFILE
-    if ((Test-Path $profileSrc) -and -not $DryRun) {
+    if ([string]::IsNullOrWhiteSpace($profileDst)) {
+        Log-Warn "`$PROFILE is empty — shell profile linking skipped"
+    }
+    elseif ((Test-Path $profileSrc) -and -not $DryRun) {
         $profileDir = Split-Path $profileDst -Parent
         if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
         if (Test-Path $profileDst) { Copy-Item $profileDst "$profileDst.dotfiles-backup" -Force }
@@ -210,7 +229,11 @@ if (-not (Test-StepSkipped "terminal")) {
     }
     else {
         if (-not $DryRun) {
-            winget install --id Microsoft.WindowsTerminal --silent 2>&1 | Out-Null
+            $wingetOutput = winget install --id Microsoft.WindowsTerminal --silent 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Log-Warn "winget: falló instalación de Microsoft.WindowsTerminal"
+                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+            }
         }
     }
 }
@@ -225,7 +248,11 @@ if (-not (Test-StepSkipped "multiplexer")) {
     else {
         Log-Warn "tmux nativo Windows: usa WSL para mejor experiencia"
         if (-not $DryRun) {
-            winget install --id Cygwin.Cygwin --silent 2>&1 | Out-Null
+            $wingetOutput = winget install --id Cygwin.Cygwin --silent 2>&1 | Out-String
+            if ($LASTEXITCODE -ne 0) {
+                Log-Warn "winget: falló instalación de Cygwin.Cygwin"
+                if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+            }
         }
     }
 }
@@ -251,7 +278,11 @@ if (-not (Test-StepSkipped "dev-tools")) {
 if (-not (Test-StepSkipped "runtimes")) {
     Log-Section "Runtimes (Node, Python)"
     if (-not (Get-Command node -ErrorAction SilentlyContinue) -and -not $DryRun) {
-        winget install --id OpenJS.NodeJS.LTS --silent 2>&1 | Out-Null
+        $wingetOutput = winget install --id OpenJS.NodeJS.LTS --silent 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Log-Warn "winget: falló instalación de OpenJS.NodeJS.LTS"
+            if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+        }
     }
     if (-not (Get-Command uv -ErrorAction SilentlyContinue) -and -not $DryRun) {
         Log-Info "instalando uv"
@@ -281,7 +312,11 @@ if (-not (Test-StepSkipped "agent-tools")) {
     }
 
     if ($InstallOllama -and -not $DryRun) {
-        winget install --id Ollama.Ollama --silent 2>&1 | Out-Null
+        $wingetOutput = winget install --id Ollama.Ollama --silent 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Log-Warn "winget: falló instalación de Ollama.Ollama"
+            if ($wingetOutput.Trim()) { Log-Info "winget: $($wingetOutput.Trim())" }
+        }
     }
 
     $agentsDir = "$HOME\agents"

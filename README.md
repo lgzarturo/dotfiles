@@ -27,6 +27,7 @@ dotfiles/
 │   ├── detect.sh         # detección de SO, hardware, shell
 │   ├── detect.ps1        # equivalente Windows
 │   ├── logger.sh         # logging con colores
+│   ├── logger.ps1        # logging Windows
 │   ├── package-managers.sh  # apt | dnf | brew | pacman
 │   ├── sysctl-tune.sh    # optimizaciones kernel
 │   ├── ssd-tune.sh       # optimizaciones SSD/NVMe
@@ -37,6 +38,7 @@ dotfiles/
 │   ├── tmux/             # .tmux.conf + plugins
 │   ├── kitty/            # kitty.conf
 │   ├── starship/         # starship.toml
+│   ├── powershell/       # Microsoft.PowerShell_profile.ps1
 │   └── git/              # .gitconfig + .gitignore_global
 ├── bin/                  # scripts auxiliares
 │   ├── new-agent-project
@@ -68,12 +70,16 @@ chmod +x setup.sh
 
 ### Windows (PowerShell nativo, fuera de WSL)
 
+Requiere **PowerShell 7+** (pwsh) en Windows 11.
+
 ```powershell
 git clone https://github.com/lgzarturo/dotfiles.git $HOME\dotfiles
 cd $HOME\dotfiles
 .\setup.ps1               # interactivo
 .\setup.ps1 -Yes          # aceptar todo
-.\setup.ps1 -DryRun       # preview
+.\setup.ps1 -DryRun       # preview (no modifica el sistema)
+.\setup.ps1 -Skip shell   # saltar paso shell
+.\setup.ps1 -Only preflight,backup  # solo estos pasos
 ```
 
 ## 🧭 Perfiles
