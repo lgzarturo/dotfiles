@@ -282,7 +282,7 @@ step_shell() {
       local tmp
       tmp="$(mktemp)"
       if curl -fsSL https://starship.rs/install.sh -o "$tmp"; then
-        sh "$tmp" -s -- -y
+        sh "$tmp" --yes
         rm -f "$tmp"
       else
         rm -f "$tmp"
@@ -298,7 +298,7 @@ step_shell() {
       local tmp
       tmp="$(mktemp)"
       if curl -fsSL https://raw.githubusercontent.com/zap-zsh/zap/main/install.sh -o "$tmp"; then
-        zsh "$tmp" "" --silent
+        zsh "$tmp" --branch release-v1 --keep-zshrc
         rm -f "$tmp"
       else
         rm -f "$tmp"
