@@ -231,7 +231,7 @@ step_core_packages() {
         curl wget git vim nano
         ca-certificates gnupg
         build-essential  # no-op si no existe
-        unzip zip tar xz
+        unzip zip tar xz-utils
         openssh-client
         htop
         fontconfig
