@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - `winget source update` before the core-packages loop in `setup.ps1` to ensure the local package catalog is current.
 
 ### Fixed
+- **`lib/agent-tools.sh` — npm y node desactualizados al instalar Agent Tools**: se añade `_update_node_npm()` que ejecuta `npm install -g npm@latest` (best-effort) y `mise upgrade node` antes de instalar paquetes globales. Además, `ensure_claude_code` ahora actualiza Claude Code cuando ya está instalado en lugar de retornar sin hacer nada.
 - **`setup.sh` — `Unknown option: -s` al instalar Starship**: la llamada era `sh "$tmp" -s -- -y`; el instalador de Starship recibía `-s` como opción desconocida y abortaba. Corregido a `sh "$tmp" --yes` (flag documentado: `-y`/`--yes`).
 - **`setup.sh` — argumentos inválidos al instalar Zap**: la llamada era `zsh "$tmp" "" --silent`; `--silent` no existe en el instalador de Zap y `""` es un argumento vacío inesperado. Corregido a `zsh "$tmp" --branch release-v1 --keep-zshrc` para instalar la rama estable y preservar el `.zshrc` ya enlazado por dotfiles.
 - **`setup.sh` — `E: Unable to locate package xz` en Ubuntu/Debian**: el nombre correcto del paquete en sistemas APT es `xz-utils`, no `xz`. Corregido en la lista de core packages del bloque `linux)` (el bloque `fedora|rhel|...` ya usaba el nombre correcto para RPM).

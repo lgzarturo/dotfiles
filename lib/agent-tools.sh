@@ -11,24 +11,53 @@ DOTFILES_AGENT_BIN="$HOME/bin"
 install_agent_tools() {
   log_section "Agent Tools (Claude Code, Ollama, etc.)"
 
+  # Actualizar npm y node antes de instalar/actualizar paquetes globales
+  _update_node_npm
+
   ensure_claude_code
   ensure_ollama
   ensure_agent_structure
 }
 
+# ─── Actualizar npm + node ──────────────────────────────────
+_update_node_npm() {
+  if [ "$DOTFILES_DRY_RUN" = "true" ]; then
+    log_info "[dry-run] npm install -g npm@latest"
+    return 0
+  fi
+
+  # npm self-update (best-effort; no aborta si falla)
+  if command -v npm >/dev/null 2>&1; then
+    log_info "actualizando npm"
+    npm install -g npm@latest || log_warn "npm self-update falló — continuando con la versión actual"
+    log_debug "npm: $(npm --version 2>/dev/null || echo unknown)"
+  fi
+
+  # node vía mise (best-effort; no aborta si falla o si no hay config)
+  if command -v mise >/dev/null 2>&1; then
+    log_info "actualizando node vía mise"
+    mise upgrade node 2>/dev/null || true
+    log_debug "node: $(node --version 2>/dev/null || echo unknown)"
+  fi
+}
+
 ensure_claude_code() {
+  # Requiere Node.js
+  if ! command -v node >/dev/null 2>&1; then
+    log_warn "Node.js no detectado — instala node primero via runtime step"
+    return 1
+  fi
+
   if command -v claude >/dev/null 2>&1; then
-    log_debug "claude CLI ya presente: $(claude --version 2>/dev/null || echo unknown)"
+    log_info "actualizando Claude Code CLI"
+    if [ "$DOTFILES_DRY_RUN" != "true" ]; then
+      npm install -g @anthropic-ai/claude-code || log_warn "claude update falló — usando versión actual"
+    fi
+    log_success "Claude Code: $(claude --version 2>/dev/null || echo unknown)"
     return 0
   fi
 
   log_info "instalando Claude Code CLI"
-
-  # Requiere Node.js. Si no está, lo instalamos via pkg.
-  if ! command -v node >/dev/null 2>&1; then
-    log_warn "Node.js no detectado — install node first via runtime step"
-    return 1
-  fi
 
   if [ "$DOTFILES_DRY_RUN" = "true" ]; then
     log_info "[dry-run] npm install -g @anthropic-ai/claude-code"
