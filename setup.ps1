@@ -134,6 +134,7 @@ $steps = @(
     "ssd",
     "ram",
     "network",
+    "git-config",
     "dotfiles-link",
     "post-install"
 )
@@ -405,7 +406,77 @@ if (-not (Test-StepSkipped "network")) {
     }
 }
 
-# ── 15. dotfiles-link ──
+# ── 15. git-config ──
+if (-not (Test-StepSkipped "git-config")) {
+    Log-Section "Git user config"
+    $tmpl = Join-Path $ConfigDir "git\.gitconfig"
+
+    $PLACEHOLDER_NAME  = "Tu Nombre"
+    $PLACEHOLDER_EMAIL = "tu@email.com"
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Log-Warn "git no disponible — se saltará configuración de usuario"
+    }
+    elseif (-not (Test-Path $tmpl)) {
+        Log-Warn "template $tmpl no encontrado — se saltará"
+    }
+    else {
+        # Leer valores del template actual
+        $tmplName  = & git config --file $tmpl user.name  2>$null
+        $tmplEmail = & git config --file $tmpl user.email 2>$null
+
+        # Leer valores del sistema (config global preexistente)
+        $sysName  = & git config --global user.name  2>$null
+        $sysEmail = & git config --global user.email 2>$null
+
+        # Determinar defaults: sistema > template, ignorando placeholders
+        $defaultName = $null
+        $defaultEmail = $null
+        if ($sysName  -and $sysName  -ne $PLACEHOLDER_NAME)  { $defaultName  = $sysName  }
+        elseif ($tmplName  -and $tmplName  -ne $PLACEHOLDER_NAME)  { $defaultName  = $tmplName  }
+        if ($sysEmail -and $sysEmail -ne $PLACEHOLDER_EMAIL) { $defaultEmail = $sysEmail }
+        elseif ($tmplEmail -and $tmplEmail -ne $PLACEHOLDER_EMAIL) { $defaultEmail = $tmplEmail }
+
+        $gitName = $null; $gitEmail = $null
+
+        if ($Script:AssumeYes) {
+            if ($defaultName -and $defaultEmail) {
+                Log-Info "git user: $defaultName <$defaultEmail> (detectado, sin prompt)"
+                $gitName  = $defaultName
+                $gitEmail = $defaultEmail
+            }
+            else {
+                Log-Warn "git-config: -Yes activo pero no hay valores válidos; configura git manualmente"
+            }
+        }
+        else {
+            $prompt = if ($defaultName)  { "  Git name  [$defaultName]"  } else { "  Git name"  }
+            $gitName = Read-Host $prompt
+            if ([string]::IsNullOrWhiteSpace($gitName))  { $gitName  = $defaultName  }
+
+            $prompt = if ($defaultEmail) { "  Git email [$defaultEmail]" } else { "  Git email" }
+            $gitEmail = Read-Host $prompt
+            if ([string]::IsNullOrWhiteSpace($gitEmail)) { $gitEmail = $defaultEmail }
+        }
+
+        if ($gitName -and $gitEmail) {
+            if ($Script:DryRun) {
+                Log-Info "[dry-run] git config user.name  = $gitName"
+                Log-Info "[dry-run] git config user.email = $gitEmail"
+            }
+            else {
+                & git config --file $tmpl user.name  "$gitName"
+                & git config --file $tmpl user.email "$gitEmail"
+                Log-Success "git user: $gitName <$gitEmail>"
+            }
+        }
+        else {
+            Log-Warn "git user config incompleto — edita $tmpl manualmente"
+        }
+    }
+}
+
+# ── 16. dotfiles-link ──
 if (-not (Test-StepSkipped "dotfiles-link")) {
     Log-Section "Linking dotfiles"
     $links = @(
@@ -432,7 +503,7 @@ if (-not (Test-StepSkipped "dotfiles-link")) {
     }
 }
 
-# ── 16. post-install ──
+# ── 17. post-install ──
 if (-not (Test-StepSkipped "post-install")) {
     Log-Section "Post-install verification"
     $checks = @(

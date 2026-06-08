@@ -75,7 +75,7 @@ Opciones:
 Pasos disponibles (en orden):
   preflight, system-update, core-packages, shell, terminal,
   multiplexer, dev-tools, runtimes, agent-tools, gnome,
-  sysctl, ssd, ram, network, dotfiles-link, post-install
+  sysctl, ssd, ram, network, git-config, dotfiles-link, post-install
 
 Variables de entorno equivalentes:
   DOTFILES_DRY_RUN, DOTFILES_ASSUME_YES, DOTFILES_PROFILE,
@@ -555,6 +555,99 @@ step_network() {
   log_success "network tuning"
 }
 
+# ─── Git user config ───────────────────────────────────────
+step_git_config() {
+  should_run git-config || return 0
+  log_section "Git user config"
+
+  local tmpl="$CONFIG_DIR/git/.gitconfig"
+  local PLACEHOLDER_NAME="Tu Nombre"
+  local PLACEHOLDER_EMAIL="tu@email.com"
+
+  if ! command -v git >/dev/null 2>&1; then
+    log_warn "git no disponible — se saltará configuración de usuario"
+    return 0
+  fi
+
+  if [ ! -f "$tmpl" ]; then
+    log_warn "template $tmpl no encontrado — se saltará"
+    return 0
+  fi
+
+  # Leer valores del template actual
+  local tmpl_name tmpl_email
+  tmpl_name="$(git config --file "$tmpl" user.name  2>/dev/null || echo "")"
+  tmpl_email="$(git config --file "$tmpl" user.email 2>/dev/null || echo "")"
+
+  # Leer valores del sistema (config global preexistente, puede ser el propio template si ya hay symlink)
+  local sys_name sys_email
+  sys_name="$(git config --global user.name  2>/dev/null || echo "")"
+  sys_email="$(git config --global user.email 2>/dev/null || echo "")"
+
+  # Determinar defaults: sistema > template, ignorando placeholders
+  local default_name default_email
+  default_name=""
+  default_email=""
+  if [ -n "$sys_name"  ] && [ "$sys_name"  != "$PLACEHOLDER_NAME"  ]; then
+    default_name="$sys_name"
+  elif [ -n "$tmpl_name" ] && [ "$tmpl_name" != "$PLACEHOLDER_NAME" ]; then
+    default_name="$tmpl_name"
+  fi
+  if [ -n "$sys_email" ] && [ "$sys_email" != "$PLACEHOLDER_EMAIL" ]; then
+    default_email="$sys_email"
+  elif [ -n "$tmpl_email" ] && [ "$tmpl_email" != "$PLACEHOLDER_EMAIL" ]; then
+    default_email="$tmpl_email"
+  fi
+
+  local git_name git_email
+  git_name=""
+  git_email=""
+
+  if [ "$DOTFILES_ASSUME_YES" = "true" ]; then
+    if [ -n "$default_name" ] && [ -n "$default_email" ]; then
+      log_info "git user: $default_name <$default_email> (detectado, sin prompt)"
+      git_name="$default_name"
+      git_email="$default_email"
+    else
+      log_warn "git-config: --yes activo pero no hay valores válidos; configura git manualmente"
+      return 0
+    fi
+  else
+    if [ -n "$default_name" ]; then
+      printf "  Git name  [%s]: " "$default_name"
+    else
+      printf "  Git name: "
+    fi
+    read -r git_name
+    git_name="$(printf '%s' "$git_name" | xargs 2>/dev/null || printf '%s' "$git_name")"
+    [ -z "$git_name" ] && git_name="$default_name"
+
+    if [ -n "$default_email" ]; then
+      printf "  Git email [%s]: " "$default_email"
+    else
+      printf "  Git email: "
+    fi
+    read -r git_email
+    git_email="$(printf '%s' "$git_email" | xargs 2>/dev/null || printf '%s' "$git_email")"
+    [ -z "$git_email" ] && git_email="$default_email"
+  fi
+
+  if [ -z "$git_name" ] || [ -z "$git_email" ]; then
+    log_warn "git user config incompleto — edita $tmpl manualmente"
+    return 0
+  fi
+
+  if [ "$DOTFILES_DRY_RUN" = "true" ]; then
+    log_info "[dry-run] git config user.name  = $git_name"
+    log_info "[dry-run] git config user.email = $git_email"
+    return 0
+  fi
+
+  git config --file "$tmpl" user.name  "$git_name"
+  git config --file "$tmpl" user.email "$git_email"
+  log_success "git user: $git_name <$git_email>"
+}
+
 # ─── Dotfiles link ─────────────────────────────────────────
 step_dotfiles_link() {
   should_run dotfiles-link || return 0
@@ -714,6 +807,7 @@ main() {
   step_ram
   step_network
 
+  step_git_config
   step_dotfiles_link
   step_post_install
 
