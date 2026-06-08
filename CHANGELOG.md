@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Community health files**: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 1.4 en español), `.github/ISSUE_TEMPLATE/bug_report.md`, `.github/ISSUE_TEMPLATE/feature_request.md`, `.github/ISSUE_TEMPLATE/config.yml` y `.github/pull_request_template.md` siguiendo las mejores prácticas de proyectos open-source.
 - **`git-config` step** in `setup.sh` and `setup.ps1`: interactively prompts for `user.name` and `user.email` during setup and writes them to `config/git/.gitconfig` using `git config --file`. Runs before `dotfiles-link` so values are correct when the symlink is created.
   - Detects existing values from the system's global git config as prompt defaults.
   - Placeholder-aware: `"Tu Nombre"` / `"tu@email.com"` are never used as defaults.

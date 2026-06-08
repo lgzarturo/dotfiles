@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Documentación de arquitectura
+    url: https://github.com/lgzarturo/dotfiles/blob/main/docs/ARCHITECTURE.md
+    about: Lee la arquitectura del proyecto antes de abrir un issue
+  - name: Preguntas frecuentes
+    url: https://github.com/lgzarturo/dotfiles/blob/main/docs/FAQ.md
+    about: Consulta las preguntas frecuentes — puede que tu duda ya esté resuelta
+  - name: Reportar vulnerabilidad de seguridad
+    url: https://github.com/lgzarturo/dotfiles/blob/main/SECURITY.md
+    about: NO abras un issue público para vulnerabilidades — sigue el proceso de divulgación responsable
