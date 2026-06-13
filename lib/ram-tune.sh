@@ -98,13 +98,36 @@ _apply_swapfile_linux() {
 
   log_info "creando swapfile de ${target_gb}GB en $swapfile"
 
-  if ! sudo_run fallocate -l "${target_gb}G" "$swapfile" 2>/dev/null; then
-    log_warn "fallocate falló, intentando con dd"
-    sudo_run dd if=/dev/zero of="$swapfile" bs=1M count=$((target_gb * 1024)) status=none
+  # Detectar si el sistema de archivos es Btrfs
+  local swapfile_dir="$(dirname "$swapfile")"
+  local fstype
+  fstype=$(findmnt -no FSTYPE -T "$swapfile_dir" 2>/dev/null || df -T "$swapfile_dir" 2>/dev/null | awk 'NR==2 {print $2}')
+
+  if [ "$fstype" = "btrfs" ]; then
+    log_info "Btrfs detectado en $swapfile_dir, aplicando configuración específica de swapfile"
+    if btrfs filesystem --help 2>&1 | grep -q "mkswapfile"; then
+      sudo_run btrfs filesystem mkswapfile --size "${target_gb}g" "$swapfile"
+    else
+      # Creación manual No-COW para versiones antiguas de Btrfs
+      sudo_run truncate -s 0 "$swapfile"
+      sudo_run chattr +C "$swapfile"
+      sudo_run btrfs property set "$swapfile" compression none 2>/dev/null || true
+      if ! sudo_run fallocate -l "${target_gb}G" "$swapfile" 2>/dev/null; then
+        sudo_run dd if=/dev/zero of="$swapfile" bs=1M count=$((target_gb * 1024)) status=none
+      fi
+      sudo_run chmod 600 "$swapfile"
+      sudo_run mkswap "$swapfile" >/dev/null
+    fi
+  else
+    # Creación estándar para otros sistemas de archivos (ext4, xfs, etc.)
+    if ! sudo_run fallocate -l "${target_gb}G" "$swapfile" 2>/dev/null; then
+      log_warn "fallocate falló, intentando con dd"
+      sudo_run dd if=/dev/zero of="$swapfile" bs=1M count=$((target_gb * 1024)) status=none
+    fi
+    sudo_run chmod 600 "$swapfile"
+    sudo_run mkswap "$swapfile" >/dev/null
   fi
 
-  sudo_run chmod 600 "$swapfile"
-  sudo_run mkswap "$swapfile" >/dev/null
   sudo_run swapon "$swapfile"
 
   # Persistente
