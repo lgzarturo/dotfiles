@@ -35,3 +35,9 @@
 	lg = log --oneline --graph --decorate --all
 	amend = commit --amend --no-edit
 	wip = commit -am "wip: $(date +%H:%M:%S)"
+[credential "https://github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/usr/bin/gh auth git-credential
