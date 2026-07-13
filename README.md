@@ -113,13 +113,45 @@ cd $HOME\dotfiles
 8. `dev-tools` — rg, fd, bat, eza, fzf, lazygit, etc.
 9. `runtimes` — mise/uv/node/python
 10. `agent-tools` — Claude Code, Ollama (opcional)
-11. `gnome` / `macos` / `windows` — Tweaks del SO
-12. `sysctl` — Tuning de kernel
-13. `ssd` — Optimización de almacenamiento
-14. `ram` — ZRAM/swap
-15. `network` — TCP BBR, fq, etc.
-16. `dotfiles-link` — Symlinks de configs
-17. `post-install` — Verificación final
+11. `agent-aliases` — Aliases de herramientas agenticas con flags de permisividad
+12. `gnome` / `macos` / `windows` — Tweaks del SO
+13. `sysctl` — Tuning de kernel
+14. `ssd` — Optimización de almacenamiento
+15. `ram` — ZRAM/swap
+16. `network` — TCP BBR, fq, etc.
+17. `dotfiles-link` — Symlinks de configs
+18. `post-install` — Verificación final
+
+## 🤖 Aliases de herramientas agenticas
+
+El paso `agent-aliases` detecta qué herramientas están instaladas y configura
+automáticamente aliases con sus flags de permisividad:
+
+| Herramienta | Alias configurado |
+| ----------- | ----------------- |
+| `claude`    | `claude --allow-dangerously-skip-permissions` |
+| `agy`       | `agy --dangerously-skip-permissions` |
+| `opencode`  | `opencode --auto` |
+| `codex`     | `codex --dangerously-bypass-approvals-and-sandbox` |
+
+- **Linux / macOS / WSL**: aliases escritos en `~/.zshrc.local` (cargado por `.zshrc`)
+- **Windows**: funciones wrapper escritas en `profile.local.ps1` junto a `$PROFILE`
+- **Idempotente**: re-ejecutar el paso no duplica entradas (usa bloques centinela)
+- **Solo herramientas presentes**: si una herramienta no está en PATH, su alias no se configura
+
+### Ejecutar solo este paso
+
+```bash
+# Linux / macOS / WSL
+./setup.sh --only agent-aliases
+./setup.sh --only agent-aliases --dry-run   # preview sin modificar nada
+```
+
+```powershell
+# Windows
+.\setup.ps1 -Only agent-aliases
+.\setup.ps1 -Only agent-aliases -DryRun     # preview sin modificar nada
+```
 
 ## 🧪 Verificación
 

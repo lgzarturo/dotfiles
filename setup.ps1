@@ -130,6 +130,7 @@ $steps = @(
     "dev-tools",
     "runtimes",
     "agent-tools",
+    "agent-aliases",
     "windows-tweaks",
     "ssd",
     "ram",
@@ -322,6 +323,78 @@ if (-not (Test-StepSkipped "agent-tools")) {
     foreach ($sub in @("workspaces", "scratch", "memory", "prompts", "tools", "templates")) {
         $p = Join-Path $agentsDir $sub
         if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
+    }
+}
+
+# ── 10b. agent-aliases ──
+if (-not (Test-StepSkipped "agent-aliases")) {
+    Log-Section "Agent aliases (claude, agy, opencode, codex)"
+
+    $profileDir   = Split-Path $PROFILE -Parent
+    $profileLocal = Join-Path $profileDir "profile.local.ps1"
+    $markerBegin  = "# ─── DOTFILES:AGENT-ALIASES BEGIN ──"
+    $markerEnd    = "# ─── DOTFILES:AGENT-ALIASES END ────"
+
+    $toolsMap = [ordered]@{
+        "claude"   = "--allow-dangerously-skip-permissions"
+        "agy"      = "--dangerously-skip-permissions"
+        "opencode" = "--auto"
+        "codex"    = "--dangerously-bypass-approvals-and-sandbox"
+    }
+
+    $foundTools = [System.Collections.Generic.List[string]]::new()
+    foreach ($tool in $toolsMap.Keys) {
+        if (Get-Command $tool -ErrorAction SilentlyContinue) {
+            $foundTools.Add($tool)
+            if ($DryRun) {
+                $flags = $toolsMap[$tool]
+                Log-Info "[dry-run] alias: function $tool { & <exe> $flags @args }"
+            }
+        }
+        else {
+            Log-Info "agent-alias: $tool no instalado — omitiendo"
+        }
+    }
+
+    if ($DryRun) {
+        if ($foundTools.Count -eq 0) { Log-Info "[dry-run] ninguna herramienta agentica detectada — sin aliases" }
+    }
+    elseif ($foundTools.Count -eq 0) {
+        Log-Info "ninguna herramienta agentica detectada — sin aliases que configurar"
+    }
+    else {
+        # Asegurar directorio del profile
+        if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
+
+        # Eliminar bloque anterior (idempotencia)
+        if (Test-Path $profileLocal) {
+            $existingLines = Get-Content $profileLocal -ErrorAction SilentlyContinue
+            $newLines = [System.Collections.Generic.List[string]]::new()
+            $inBlock = $false
+            foreach ($line in $existingLines) {
+                if ($line -match [regex]::Escape($markerBegin)) { $inBlock = $true; continue }
+                if ($line -match [regex]::Escape($markerEnd))   { $inBlock = $false; continue }
+                if (-not $inBlock) { $newLines.Add($line) }
+            }
+            $newLines | Set-Content $profileLocal -Encoding UTF8
+        }
+
+        # Construir bloque nuevo
+        $block = [System.Collections.Generic.List[string]]::new()
+        $block.Add("")
+        $block.Add($markerBegin)
+        $block.Add("# Gestionado por dotfiles — no editar manualmente")
+        foreach ($tool in $foundTools) {
+            $flags = $toolsMap[$tool]
+            $block.Add("function $tool {")
+            $block.Add("    `$_exe = (Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue).Source")
+            $block.Add("    if (`$_exe) { & `$_exe $flags @args } else { Write-Error `"$tool no encontrado en PATH`" }")
+            $block.Add("}")
+        }
+        $block.Add($markerEnd)
+
+        Add-Content -Path $profileLocal -Value $block -Encoding UTF8
+        Log-Success "agent aliases configurados en $profileLocal ($($foundTools.Count) alias)"
     }
 }
 

@@ -131,3 +131,76 @@ EOF
   mkdir -p "$DOTFILES_AGENT_BIN"
   log_success "estructura agentic creada"
 }
+
+# ─── Aliases de herramientas agenticas ────────────────────
+# Escribe aliases con flags de permisividad en ~/.zshrc.local.
+# Idempotente: usa bloques centinela para no duplicar entradas.
+# Solo configura el alias si la herramienta está instalada en PATH.
+configure_agent_aliases() {
+  log_section "Agent aliases (claude, agy, opencode, codex)"
+
+  local zshrc_local="$HOME/.zshrc.local"
+  local marker_begin="# ─── DOTFILES:AGENT-ALIASES BEGIN ──"
+  local marker_end="# ─── DOTFILES:AGENT-ALIASES END ────"
+  local found=0
+  local alias_block=""
+
+  # Pares tool:flags en orden determinista
+  local _tools=(
+    "claude:--allow-dangerously-skip-permissions"
+    "agy:--dangerously-skip-permissions"
+    "opencode:--auto"
+    "codex:--dangerously-bypass-approvals-and-sandbox"
+  )
+
+  local _entry tool flags line
+  for _entry in "${_tools[@]}"; do
+    tool="${_entry%%:*}"
+    flags="${_entry#*:}"
+    if command -v "$tool" >/dev/null 2>&1; then
+      found=$((found + 1))
+      line="alias ${tool}='${tool} ${flags}'"
+      if [ "$DOTFILES_DRY_RUN" = "true" ]; then
+        log_info "[dry-run] alias: ${line}"
+      else
+        alias_block="${alias_block}${line}"$'\n'
+      fi
+    else
+      log_info "agent-alias: $tool no instalado — omitiendo"
+    fi
+  done
+
+  if [ "$DOTFILES_DRY_RUN" = "true" ]; then
+    [ "$found" -eq 0 ] && log_info "[dry-run] ninguna herramienta agentica detectada — sin aliases"
+    return 0
+  fi
+
+  if [ "$found" -eq 0 ]; then
+    log_info "ninguna herramienta agentica detectada — sin aliases que configurar"
+    return 0
+  fi
+
+  # Crear ~/.zshrc.local si no existe
+  touch "$zshrc_local"
+
+  # Eliminar bloque anterior (idempotencia) mediante awk portable
+  if grep -qF "$marker_begin" "$zshrc_local" 2>/dev/null; then
+    local _tmp
+    _tmp="$(mktemp)"
+    awk '
+      /# ─── DOTFILES:AGENT-ALIASES BEGIN/ { skip=1; next }
+      /# ─── DOTFILES:AGENT-ALIASES END/   { skip=0; next }
+      !skip
+    ' "$zshrc_local" > "$_tmp" && mv "$_tmp" "$zshrc_local"
+  fi
+
+  # Escribir bloque nuevo al final del archivo
+  {
+    printf '\n%s\n' "$marker_begin"
+    printf '%s\n' "# Gestionado por dotfiles — no editar manualmente"
+    printf '%s' "$alias_block"
+    printf '%s\n' "$marker_end"
+  } >> "$zshrc_local"
+
+  log_success "agent aliases configurados en $zshrc_local ($found alias)"
+}

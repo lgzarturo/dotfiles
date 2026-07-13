@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`agent-aliases` step** in `setup.sh` and `setup.ps1`: detects installed agentic CLI tools (`claude`, `agy`, `opencode`, `codex`) and configures permission-flag aliases only for those present in PATH.
+  - **Linux / macOS / WSL**: aliases written to `~/.zshrc.local` (already sourced by `.zshrc`) using `BEGIN/END` sentinel blocks for idempotency.
+  - **Windows**: function wrappers written to `profile.local.ps1` in the `$PROFILE` directory (already sourced by the PowerShell profile). Uses `Get-Command -CommandType Application` to avoid infinite recursion.
+  - Aliases: `claude --allow-dangerously-skip-permissions`, `agy --dangerously-skip-permissions`, `opencode --auto`, `codex --dangerously-bypass-approvals-and-sandbox`.
+  - Supports `--only agent-aliases` / `-Only agent-aliases` to run standalone without executing the full setup.
+  - Supports `--dry-run` / `-DryRun`: prints what would be configured without modifying any file.
+  - Fully idempotent: re-running N times results in exactly one alias block per file.
+- **`tests/test-agent-aliases.sh`**: functional test suite (10 cases) covering dry-run, tool detection, idempotency, content preservation, and sentinel markers.
+- **`config/powershell/Microsoft.PowerShell_profile.ps1`**: replaced `$PSScriptRoot`-based `profile.local.ps1` sourcing with `Split-Path $PROFILE -Parent` to eliminate ambiguity when the profile file is a symbolic link.
 - **Community health files**: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` (Contributor Covenant 1.4 en español), `.github/ISSUE_TEMPLATE/bug_report.md`, `.github/ISSUE_TEMPLATE/feature_request.md`, `.github/ISSUE_TEMPLATE/config.yml` y `.github/pull_request_template.md` siguiendo las mejores prácticas de proyectos open-source.
 - **`git-config` step** in `setup.sh` and `setup.ps1`: interactively prompts for `user.name` and `user.email` during setup and writes them to `config/git/.gitconfig` using `git config --file`. Runs before `dotfiles-link` so values are correct when the symlink is created.
   - Detects existing values from the system's global git config as prompt defaults.

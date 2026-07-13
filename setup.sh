@@ -85,7 +85,7 @@ Opciones:
 
 Pasos disponibles (en orden):
   preflight, system-update, core-packages, shell, terminal,
-  multiplexer, dev-tools, runtimes, agent-tools, gnome,
+  multiplexer, dev-tools, runtimes, agent-tools, agent-aliases, gnome,
   sysctl, ssd, ram, network, git-config, dotfiles-link, post-install
 
 Variables de entorno equivalentes:
@@ -492,6 +492,12 @@ step_agent_tools() {
   install_agent_tools
 }
 
+# ─── Agent aliases ─────────────────────────────────────────
+step_agent_aliases() {
+  should_run agent-aliases || return 0
+  configure_agent_aliases
+}
+
 # ─── SO-specific tweaks ────────────────────────────────────
 step_gnome() {
   should_run gnome || return 0
@@ -802,6 +808,7 @@ main() {
   step_dev_tools
   step_runtimes
   step_agent_tools
+  step_agent_aliases
 
   # SO-specific
   case "$DOTFILES_OS" in

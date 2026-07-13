@@ -33,7 +33,8 @@ foreach ($k in $aliases.Keys) {
 # Path
 $env:Path = "$env:USERPROFILE\bin;$env:Path"
 
-# Local overrides
-if (Test-Path "$PSScriptRoot\profile.local.ps1") {
-    . "$PSScriptRoot\profile.local.ps1"
-}
+# Local overrides — siempre se resuelve desde el directorio real de $PROFILE
+# (evita ambigüedad cuando el profile es un symlink)
+$_profileLocalPath = Join-Path (Split-Path $PROFILE -Parent) "profile.local.ps1"
+if (Test-Path $_profileLocalPath) { . $_profileLocalPath }
+Remove-Variable _profileLocalPath -ErrorAction SilentlyContinue
