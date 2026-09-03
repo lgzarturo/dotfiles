@@ -47,6 +47,8 @@ fi
 . "$LIB_DIR/ram-tune.sh"
 # shellcheck source=lib/agent-tools.sh
 . "$LIB_DIR/agent-tools.sh"
+# shellcheck source=lib/change-shell.sh
+. "$LIB_DIR/change-shell.sh"
 
 # ─── Version ────────────────────────────────────────────────
 DOTFILES_VERSION="unknown"
@@ -86,7 +88,7 @@ Opciones:
 Pasos disponibles (en orden):
   preflight, system-update, core-packages, shell, terminal,
   multiplexer, dev-tools, runtimes, agent-tools, agent-aliases, gnome,
-  sysctl, ssd, ram, network, git-config, dotfiles-link, post-install
+  sysctl, ssd, ram, network, git-config, dotfiles-link, change-shell, post-install
 
 Variables de entorno equivalentes:
   DOTFILES_DRY_RUN, DOTFILES_ASSUME_YES, DOTFILES_PROFILE,
@@ -400,7 +402,7 @@ step_dev_tools() {
           pkg_install \
             ripgrep fd-find bat eza zoxide fzf btop duf dust \
             tldr neovim git-delta lazygit \
-            jq yq
+            jq yq --skip-unavailable
           # Copr útiles
           _enable_copr "alternateved/eza" || true
           ;;
@@ -827,6 +829,7 @@ main() {
 
   step_git_config
   step_dotfiles_link
+  step_change_shell
   step_post_install
 
   log_section "Instalación completada"

@@ -29,7 +29,7 @@ _update_node_npm() {
   # npm self-update (best-effort; no aborta si falla)
   if command -v npm >/dev/null 2>&1; then
     log_info "actualizando npm"
-    npm install -g npm@latest || log_warn "npm self-update falló — continuando con la versión actual"
+    sudo_run npm install -g npm@latest || log_warn "npm self-update falló — continuando con la versión actual"
     log_debug "npm: $(npm --version 2>/dev/null || echo unknown)"
   fi
 
@@ -51,7 +51,7 @@ ensure_claude_code() {
   if command -v claude >/dev/null 2>&1; then
     log_info "actualizando Claude Code CLI"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      npm install -g @anthropic-ai/claude-code || log_warn "claude update falló — usando versión actual"
+      sudo_run npm install -g @anthropic-ai/claude-code || log_warn "claude update falló — usando versión actual"
     fi
     log_success "Claude Code: $(claude --version 2>/dev/null || echo unknown)"
     return 0
@@ -64,7 +64,7 @@ ensure_claude_code() {
     return 0
   fi
 
-  npm install -g @anthropic-ai/claude-code
+  sudo_run npm install -g @anthropic-ai/claude-code
   log_success "Claude Code instalado"
 }
 

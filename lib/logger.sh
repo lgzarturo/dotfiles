@@ -9,15 +9,15 @@ _DOTFILES_DRY_RUN="${DOTFILES_DRY_RUN:-false}"
 
 # ANSI
 if [ -t 1 ] && [ -z "$_DOTFILES_NO_COLOR" ]; then
-  _RED='\033[0;31m'
-  _GREEN='\033[0;32m'
-  _YELLOW='\033[0;33m'
-  _BLUE='\033[0;34m'
-  _MAGENTA='\033[0;35m'
-  _CYAN='\033[0;36m'
-  _GRAY='\033[0;90m'
-  _BOLD='\033[1m'
-  _RESET='\033[0m'
+  _RED=$'\033[0;31m'
+  _GREEN=$'\033[0;32m'
+  _YELLOW=$'\033[0;33m'
+  _BLUE=$'\033[0;34m'
+  _MAGENTA=$'\033[0;35m'
+  _CYAN=$'\033[0;36m'
+  _GRAY=$'\033[0;90m'
+  _BOLD=$'\033[1m'
+  _RESET=$'\033[0m'
 else
   _RED='' _GREEN='' _YELLOW='' _BLUE='' _MAGENTA='' _CYAN='' _GRAY='' _BOLD='' _RESET=''
 fi
