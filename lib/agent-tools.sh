@@ -137,7 +137,7 @@ EOF
 # Idempotente: usa bloques centinela para no duplicar entradas.
 # Solo configura el alias si la herramienta está instalada en PATH.
 configure_agent_aliases() {
-  log_section "Agent aliases (claude, agy, opencode, codex)"
+  log_section "Agent aliases (claude, agy, cline, cursor, opencode, codex)"
 
   local zshrc_local="$HOME/.zshrc.local"
   local marker_begin="# ─── DOTFILES:AGENT-ALIASES BEGIN ──"
@@ -149,6 +149,9 @@ configure_agent_aliases() {
   local _tools=(
     "claude:--allow-dangerously-skip-permissions"
     "agy:--dangerously-skip-permissions"
+    "cline:--auto-approve true"
+    "cursor:agent --yolo"
+    "cursor-agent:--yolo"
     "opencode:--auto"
     "codex:--dangerously-bypass-approvals-and-sandbox"
   )

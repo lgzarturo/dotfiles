@@ -141,6 +141,72 @@ should_run() {
   return 0
 }
 
+# ─── Step runner (lifecycle + tracking) ────────────────────
+_STEP_NAMES=()
+_STEP_STATES=()
+_STEP_HINTS=()
+_STEP_COUNT=0
+_STEP_CURRENT=0
+
+run_step() {
+  local name="$1" description="$2" func="$3" critical="${4:-optional}"
+  _STEP_CURRENT=$((_STEP_CURRENT + 1))
+  _STEP_NAMES+=("$name")
+
+  # Check if step should be skipped before running it
+  if in_skip "$name"; then
+    _STEP_STATES+=("skipped")
+    _STEP_HINTS+=("")
+    log_skip "$description"
+    return 0
+  fi
+  if ! in_only "$name"; then
+    _STEP_STATES+=("skipped")
+    _STEP_HINTS+=("")
+    log_skip "$description"
+    return 0
+  fi
+
+  printf '\n%s[%d/20]%s %s\n' "$_BOLD" "$_STEP_CURRENT" "$_RESET" "$description"
+
+  local start_time
+  start_time=$(date +%s)
+  local step_rc=0
+
+  if "$func"; then
+    step_rc=0
+  else
+    step_rc=$?
+  fi
+
+  local end_time elapsed elapsed_fmt
+  end_time=$(date +%s)
+  elapsed=$((end_time - start_time))
+  elapsed_fmt=$(printf '%dm %ds' $((elapsed / 60)) $((elapsed % 60)))
+
+  if [ "$step_rc" -eq 0 ]; then
+    _STEP_STATES+=("ok")
+    _STEP_HINTS+=("")
+    log_success "$description (${elapsed_fmt})"
+  else
+    if [ "$critical" = "critical" ]; then
+      _STEP_STATES+=("fatal")
+      log_error "$description FALLÓ (crítico)"
+      log_hint "reintentar: ./setup.sh --only $name"
+      log_hint "ver log: $DOTFILES_LOG_FILE"
+      log_hint "ver soporte: docs/FAQ.md"
+      exit 1
+    else
+      _STEP_STATES+=("failed")
+      _STEP_HINTS+=("./setup.sh --only $name")
+      log_warn "$description falló (no crítico) — continuando"
+      log_hint "reintentar: ./setup.sh --only $name"
+      log_hint "ver log: $DOTFILES_LOG_FILE"
+      log_hint "ver soporte: docs/FAQ.md"
+    fi
+  fi
+}
+
 # ─── Pre-flight ────────────────────────────────────────────
 step_preflight() {
   should_run preflight || return 0
@@ -412,8 +478,11 @@ step_dev_tools() {
           # eza via cargo o .deb
           if ! command -v eza >/dev/null 2>&1; then
             sudo_run mkdir -p /etc/apt/keyrings
-            wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc \
-              | sudo_run gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+            local _tmpasc
+            _tmpasc="$(mktemp)"
+            curl -fsSL -o "$_tmpasc" https://raw.githubusercontent.com/eza-community/eza/main/deb.asc
+            sudo_run gpg --dearmor -o /etc/apt/keyrings/gierens.gpg < "$_tmpasc"
+            rm -f "$_tmpasc"
             echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" \
               | sudo_run tee /etc/apt/sources.list.d/gierens.list >/dev/null
             sudo_run apt-get update -qq
@@ -763,7 +832,68 @@ step_post_install() {
   log_info "backup: $DOTFILES_BACKUP_DIR"
 }
 
-# ─── Perfil auto-detect ────────────────────────────────────
+# ─── ERR trap (failures outside run_step) ─────────────────
+on_error() {
+  local line="$1" cmd="$2"
+  log_error "error inesperado en línea $line: $cmd"
+  log_hint "ver log: $DOTFILES_LOG_FILE"
+  log_hint "reintentar: ./setup.sh --only <paso>"
+  log_hint "ver soporte: docs/FAQ.md"
+  cleanup_sudo_keepalive
+}
+trap 'on_error ${LINENO} "$BASH_COMMAND"' ERR
+
+# ─── Sudo keepalive ────────────────────────────────────────
+_SUDO_KEEPALIVE_PID=""
+
+sudo_keepalive() {
+  if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+    sudo -v 2>/dev/null || true
+    (while true; do sudo -n true 2>/dev/null; sleep 60; done) &
+    _SUDO_KEEPALIVE_PID=$!
+  fi
+}
+
+cleanup_sudo_keepalive() {
+  if [ -n "$_SUDO_KEEPALIVE_PID" ] && kill -0 "$_SUDO_KEEPALIVE_PID" 2>/dev/null; then
+    kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
+    wait "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
+  fi
+}
+
+# ─── Summary ──────────────────────────────────────────────
+print_summary() {
+  log_section "Resumen de instalación"
+  printf '\n'
+  printf '  %-25s %-10s\n' "PASO" "ESTADO"
+  printf '  %-25s %-10s\n' "─────────────────────────" "──────────"
+  local i
+  local ok=0 failed_count=0
+  for (( i=0; i < ${#_STEP_NAMES[@]}; i++ )); do
+    local state_icon
+    case "${_STEP_STATES[$i]}" in
+      ok)      state_icon="${_GREEN}✓ OK${_RESET}";   ok=$((ok + 1)) ;;
+      failed)  state_icon="${_YELLOW}✗ FALLO${_RESET}"; failed_count=$((failed_count + 1)) ;;
+      fatal)   state_icon="${_RED}✗ FATAL${_RESET}";    failed_count=$((failed_count + 1)) ;;
+      skipped) state_icon="${_YELLOW}○ SKIP${_RESET}" ;;
+    esac
+    printf '  %-25s ' "${_STEP_NAMES[$i]}"
+    printf '%b\n' "$state_icon"
+  done
+
+  printf '\n'
+  log_info "pasos completados: $ok"
+  if [ "$failed_count" -gt 0 ]; then
+    log_warn "pasos fallidos: $failed_count — ejecuta ./setup.sh --only <paso> para reintentar"
+    for (( i=0; i < ${#_STEP_NAMES[@]}; i++ )); do
+      if [ "${_STEP_STATES[$i]}" = "failed" ] || [ "${_STEP_STATES[$i]}" = "fatal" ]; then
+        log_hint "reintentar: ./setup.sh --only ${_STEP_NAMES[$i]}"
+      fi
+    done
+  fi
+  log_info "log: $DOTFILES_LOG_FILE"
+  log_info "backup: $DOTFILES_BACKUP_DIR"
+}
 detect_profile() {
   if [ "$DOTFILES_PROFILE" != "auto" ]; then
     return 0
@@ -799,47 +929,44 @@ main() {
     confirm "¿continuar con la instalación?" "y" || exit 1
   fi
 
-  # ── Pipeline ─────────────────────────────────────────
-  step_preflight
-  step_backup
-  step_system_update
-  step_core_packages
-  step_shell
-  step_terminal
-  step_multiplexer
-  step_dev_tools
-  step_runtimes
-  step_agent_tools
-  step_agent_aliases
+  sudo_keepalive
+
+  # ── Pipeline (con run_step para tracking) ───────────────
+  run_step preflight "Pre-flight checks"                step_preflight              critical
+  run_step backup    "Backup de configs existentes"     step_backup                 optional
+  run_step system-update "System update"                step_system_update          optional
+  run_step core-packages "Core packages"                step_core_packages          critical
+  run_step shell     "Shell stack (Zsh, Starship, plugins)" step_shell              optional
+  run_step terminal  "Terminal emulator"                step_terminal               optional
+  run_step multiplexer "tmux + plugins"                 step_multiplexer            optional
+  run_step dev-tools "Dev CLI tools"                    step_dev_tools              optional
+  run_step runtimes  "Runtimes (mise)"                  step_runtimes               optional
+  run_step agent-tools "Agent tools"                    step_agent_tools            optional
+  run_step agent-aliases "Agent aliases"                step_agent_aliases          optional
 
   # SO-specific
   case "$DOTFILES_OS" in
-    linux)  step_gnome ;;
-    macos)  step_macos ;;
+    linux)  run_step gnome "GNOME / DE tweaks"                  step_gnome          optional ;;
+    macos)  run_step macos  "macOS tweaks"                      step_macos          optional ;;
   esac
 
   # Optimizaciones
-  step_sysctl() { should_run sysctl || return 0; apply_sysctl_tuning; }
-  step_ssd()    { should_run ssd    || return 0; apply_ssd_tuning; }
-  step_ram()    { should_run ram    || return 0; apply_ram_tuning; }
-  step_sysctl
-  step_ssd
-  step_ram
-  step_network
+  step_sysctl_fn() { should_run sysctl || return 0; apply_sysctl_tuning; }
+  step_ssd_fn()    { should_run ssd    || return 0; apply_ssd_tuning; }
+  step_ram_fn()    { should_run ram    || return 0; apply_ram_tuning; }
+  run_step sysctl "Sysctl tuning"                step_sysctl_fn    optional
+  run_step ssd    "SSD optimization"             step_ssd_fn       optional
+  run_step ram    "RAM & virtual memory"         step_ram_fn       optional
+  run_step network "Network tuning"              step_network      optional
 
-  step_git_config
-  step_dotfiles_link
-  step_change_shell
-  step_post_install
+  run_step git-config "Git user config"          step_git_config   optional
+  run_step dotfiles-link "Linking dotfiles"      step_dotfiles_link critical
+  run_step change-shell "Change default shell"   step_change_shell  optional
+  run_step post-install "Post-install verification" step_post_install optional
 
-  log_section "Instalación completada"
-  log_info "próximos pasos:"
-  echo "  1. cierra sesión y vuelve a entrar (para que Zsh aplique)"
-  echo "  2. abre Kitty desde tu launcher"
-  echo "  3. tmux: prefix+I (Ctrl+a, I) para instalar plugins de TPM"
-  echo "  4. claude (autentícate con tu API key)"
-  echo "  5. lee docs/FAQ.md para más"
-  echo
+  cleanup_sudo_keepalive
+
+  print_summary
 }
 
 main "$@"

@@ -7,8 +7,21 @@ function Log-Debug { param([string]$Msg) Log-Write "DEBUG" $Msg Cyan }
 function Log-Info { param([string]$Msg) Log-Write "INFO"  $Msg Blue }
 function Log-Warn { param([string]$Msg) Log-Write "WARN"  $Msg Yellow }
 function Log-Error { param([string]$Msg) Log-Write "ERROR" $Msg Red }
-function Log-Success { param([string]$Msg) Write-Host "  ✓ $Msg" -ForegroundColor Green }
-function Log-Skip { param([string]$Msg) Write-Host "  ○ $Msg (skipped)" -ForegroundColor Yellow }
+function Log-Success {
+    param([string]$Msg)
+    Write-Host "  ✓ $Msg" -ForegroundColor Green
+    if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value "[$( Get-Date -Format 's')] SUCCESS $Msg" }
+}
+function Log-Skip {
+    param([string]$Msg)
+    Write-Host "  ○ $Msg (skipped)" -ForegroundColor Yellow
+    if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value "[$(Get-Date -Format 's')] SKIP $Msg (skipped)" }
+}
+function Log-Hint {
+    param([string]$Msg)
+    Write-Host "  → $Msg" -ForegroundColor Cyan
+    if ($Script:LogFile) { Add-Content -Path $Script:LogFile -Value "[$(Get-Date -Format 's')] HINT $Msg" }
+}
 
 function Log-Section {
     param([string]$Title)

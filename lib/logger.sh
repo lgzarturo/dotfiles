@@ -99,6 +99,11 @@ log_skip() {
   printf '  ○ %s (skipped)\n' "$*" >> "$_DOTFILES_LOG_FILE"
 }
 
+log_hint() {
+  printf '  %s→%s %s\n' "$_CYAN" "$_RESET" "$*"
+  printf '  → %s\n' "$*" >> "$_DOTFILES_LOG_FILE"
+}
+
 # ── Wrapper de ejecución con soporte dry-run ──────────────
 run() {
   if [ "$_DOTFILES_DRY_RUN" = "true" ]; then

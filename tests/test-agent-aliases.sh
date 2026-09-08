@@ -7,9 +7,16 @@
 
 set -euo pipefail
 
-# PATH mínimo para los tests: excluye /usr/local/bin donde viven los globals npm
-# El $tmp_bin de cada test se antepone en cada invocación.
-SYSTEM_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+# PATH mínimo para los tests: herramientas esenciales aisladas de agentes instalados
+CLEAN_SYS_BIN="$(mktemp -d)"
+cleanup_sys_bin() { rm -rf "$CLEAN_SYS_BIN"; }
+trap cleanup_sys_bin EXIT
+
+for _cmd in cat grep rm mkdir chmod sh bash touch mktemp awk mv printf echo sed; do
+  _p="$(command -v "$_cmd" 2>/dev/null || true)"
+  [ -n "$_p" ] && ln -s "$_p" "$CLEAN_SYS_BIN/$_cmd"
+done
+SYSTEM_PATH="$CLEAN_SYS_BIN"
 
 # ─── Infraestructura de test ───────────────────────────────
 PASS=0
@@ -232,6 +239,32 @@ test_markers_present() {
     "# ─── DOTFILES:AGENT-ALIASES END ────" "$content"
 }
 
+# ─── Test 9: YOLO/autonomía en agy, cursor, cline, opencode ──
+test_yolo_agent_aliases() {
+  local tmp_home="$1" tmp_bin="$2"
+  make_fake_tool "agy"          "$tmp_bin"
+  make_fake_tool "cursor"       "$tmp_bin"
+  make_fake_tool "cursor-agent" "$tmp_bin"
+  make_fake_tool "cline"        "$tmp_bin"
+  make_fake_tool "opencode"     "$tmp_bin"
+
+  run_aliases "$tmp_home" "$tmp_bin"
+
+  local content
+  content="$(cat "$tmp_home/.zshrc.local" 2>/dev/null || echo '')"
+
+  assert_contains "alias agy con modo yolo/permisivo" \
+    "alias agy='agy --dangerously-skip-permissions'" "$content"
+  assert_contains "alias cline con auto-approve" \
+    "alias cline='cline --auto-approve true'" "$content"
+  assert_contains "alias cursor con agent yolo" \
+    "alias cursor='cursor agent --yolo'" "$content"
+  assert_contains "alias cursor-agent con yolo" \
+    "alias cursor-agent='cursor-agent --yolo'" "$content"
+  assert_contains "alias opencode con auto-approve" \
+    "alias opencode='opencode --auto'" "$content"
+}
+
 # ─── Ejecutar todos los tests ─────────────────────────────
 printf '\ntests/test-agent-aliases.sh\n'
 printf '═%.0s' {1..40}
@@ -245,6 +278,7 @@ run_test "Test 5: idempotencia (alias count)"       test_idempotent_alias_count
 run_test "Test 6: sin herramientas → sin archivo"   test_no_tools_no_file
 run_test "Test 7: contenido previo preservado"      test_existing_content_preserved
 run_test "Test 8: markers BEGIN/END presentes"      test_markers_present
+run_test "Test 9: aliases YOLO para agy/cursor/cline/opencode" test_yolo_agent_aliases
 
 printf '\n═%.0s' {1..40}
 printf '\n'
