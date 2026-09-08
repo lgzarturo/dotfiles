@@ -66,6 +66,7 @@ check "mise" "command -v mise"
 check "claude" "command -v claude"
 check "ollama" "command -v ollama"
 check "agents dir" "[ -d \"$HOME/agents\" ]"
+check "matrix-fetch" "command -v matrix-fetch || [ -x \"$HOME/bin/matrix-fetch\" ]"
 
 # Configs linkeados
 check "~/.zshrc linked" "[ -L \"$HOME/.zshrc\" ] || [ -f \"$HOME/.zshrc\" ]"

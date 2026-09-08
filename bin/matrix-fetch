@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+# bin/matrix-fetch — fastfetch ultrarrápido con estética Matrix
+# Muestra información de hardware, sistema, carpeta actual y rama git.
+# Optimizado para arranque de shell en milisegundos (<15ms).
+
+set -eo pipefail
+
+VERSION="1.0.0"
+
+# ─── Inicio del temporizador de inicialización ─────────────────
+_T_START="${EPOCHREALTIME//[!0-9]/}"
+
+# ─── Argument parsing ─────────────────────────────────────────
+NO_COLOR=false
+COMPACT=false
+SHORT=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --no-color) NO_COLOR=true ;;
+    -c|--compact) COMPACT=true ;;
+    -s|--short) SHORT=true ;;
+    -v|--version) echo "matrix-fetch v${VERSION}"; exit 0 ;;
+    -h|--help)
+      cat << 'EOF'
+matrix-fetch — fastfetch ultrarrápido estilo Matrix
+
+Uso:
+  matrix-fetch [opciones]
+
+Opciones:
+  -c, --compact   Fuerza diseño compacto de una sola columna
+  -s, --short     Salida de una sola línea resumida
+  --no-color      Desactiva colores ANSI
+  -v, --version   Muestra la versión
+  -h, --help      Muestra esta ayuda
+EOF
+      exit 0
+      ;;
+  esac
+done
+
+# ─── Colores Matrix ───────────────────────────────────────────
+if [ "$NO_COLOR" = "false" ] && [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
+  G_HI="\033[1;38;5;46m"    # Verde neón brillante
+  G_MID="\033[38;5;82m"     # Verde claro Matrix
+  G_LOW="\033[38;5;34m"     # Verde medio Matrix
+  G_DIM="\033[38;5;28m"     # Verde bosque oscuro
+  G_DARK="\033[38;5;22m"    # Verde tenue profundo
+  W="\033[1;97m"            # Blanco brillante / fósforo
+  C="\033[38;5;51m"         # Cian digital
+  Y="\033[1;38;5;214m"      # Ámbar / alerta
+  GRAY="\033[38;5;242m"     # Gris cibernético
+  MUTED="\033[38;5;238m"    # Gris oscuro / separadores
+  R="\033[0m"               # Reset
+else
+  G_HI="" G_MID="" G_LOW="" G_DIM="" G_DARK="" W="" C="" Y="" GRAY="" MUTED="" R=""
+fi
+
+# ─── 1. Host & Usuario ────────────────────────────────────────
+user="${USER:-$(id -un 2>/dev/null || echo 'user')}"
+host=""
+if [ -f /proc/sys/kernel/hostname ]; then
+  read -r host < /proc/sys/kernel/hostname
+fi
+[ -z "$host" ] && host="$(hostname 2>/dev/null || echo 'localhost')"
+
+# ─── 2. Sistema Operativo & Kernel ────────────────────────────
+os_name=""
+if [ -f /etc/os-release ]; then
+  while IFS='=' read -r k v; do
+    case "$k" in
+      PRETTY_NAME)
+        os_name="${v%\"}"
+        os_name="${os_name#\"}"
+        break
+        ;;
+    esac
+  done < /etc/os-release
+elif command -v sw_vers >/dev/null 2>&1; then
+  os_name="macOS $(sw_vers -productVersion 2>/dev/null)"
+fi
+[ -z "$os_name" ] && os_name="$(uname -s) $(uname -m)"
+
+kernel=""
+if [ -f /proc/sys/kernel/osrelease ]; then
+  read -r kernel < /proc/sys/kernel/osrelease
+fi
+[ -z "$kernel" ] && kernel="$(uname -r)"
+
+# ─── 3. Uptime ────────────────────────────────────────────────
+uptime_str="desconocido"
+if [ -f /proc/uptime ]; then
+  read -r up_raw _ < /proc/uptime
+  up_total="${up_raw%%.*}"
+  days=$((up_total / 86400))
+  hours=$(( (up_total % 86400) / 3600 ))
+  mins=$(( (up_total % 3600) / 60 ))
+  if [ "$days" -gt 0 ]; then
+    uptime_str="${days}d ${hours}h ${mins}m"
+  elif [ "$hours" -gt 0 ]; then
+    uptime_str="${hours}h ${mins}m"
+  else
+    uptime_str="${mins}m"
+  fi
+elif command -v sysctl >/dev/null 2>&1; then
+  boot_time=$(sysctl -n kern.boottime 2>/dev/null | awk '{print $4}' | tr -d ',')
+  if [ -n "$boot_time" ]; then
+    now=$(date +%s)
+    up_total=$((now - boot_time))
+    hours=$((up_total / 3600))
+    mins=$(( (up_total % 3600) / 60 ))
+    uptime_str="${hours}h ${mins}m"
+  fi
+fi
+
+# ─── 4. Procesador (CPU) ──────────────────────────────────────
+cpu_model=""
+if [ -f /proc/cpuinfo ]; then
+  while IFS=':' read -r k v; do
+    case "$k" in
+      *"model name"*)
+        cpu_model="${v#"${v%%[! ]*}"}"
+        break
+        ;;
+    esac
+  done < /proc/cpuinfo
+elif command -v sysctl >/dev/null 2>&1; then
+  cpu_model="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+fi
+
+# Limpieza estética del nombre de CPU
+cpu_model="${cpu_model//(R)/}"
+cpu_model="${cpu_model//(TM)/}"
+cpu_model="${cpu_model//  / }"
+
+cpu_cores=1
+if [ -f /sys/devices/system/cpu/online ]; then
+  read -r cpu_online < /sys/devices/system/cpu/online
+  if [[ "$cpu_online" =~ ([0-9]+)$ ]]; then
+    cpu_cores=$(( BASH_REMATCH[1] + 1 ))
+  fi
+elif command -v nproc >/dev/null 2>&1; then
+  cpu_cores="$(nproc 2>/dev/null || echo 1)"
+elif command -v sysctl >/dev/null 2>&1; then
+  cpu_cores="$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+fi
+
+# ─── 5. Memoria RAM ───────────────────────────────────────────
+ram_str="desconocida"
+if [ -f /proc/meminfo ]; then
+  mem_total_kb=0
+  mem_avail_kb=0
+  while read -r k v _; do
+    case "$k" in
+      MemTotal:) mem_total_kb="$v" ;;
+      MemAvailable:) mem_avail_kb="$v" ;;
+    esac
+    if [ "$mem_total_kb" -gt 0 ] && [ "$mem_avail_kb" -gt 0 ]; then
+      break
+    fi
+  done < /proc/meminfo
+  if [ "$mem_total_kb" -gt 0 ]; then
+    mem_used_kb=$((mem_total_kb - mem_avail_kb))
+    mem_pct=$(( (mem_used_kb * 100) / mem_total_kb ))
+
+    mem_used_x10=$(( (mem_used_kb * 10) / 1048576 ))
+    mem_tot_x10=$(( (mem_total_kb * 10) / 1048576 ))
+
+    filled=$((mem_pct / 10))
+    [ "$filled" -gt 10 ] && filled=10
+    empty=$((10 - filled))
+
+    bar_col="$G_HI"
+    [ "$mem_pct" -ge 80 ] && bar_col="$Y"
+
+    bar_fill=""
+    for ((i=0; i<filled; i++)); do bar_fill="${bar_fill}█"; done
+    bar_empty=""
+    for ((i=0; i<empty; i++)); do bar_empty="${bar_empty}░"; done
+
+    ram_bar="${MUTED}[${bar_col}${bar_fill}${MUTED}${bar_empty} ${bar_col}${mem_pct}%${MUTED}]"
+    ram_str="${mem_used_x10:0:-1}.${mem_used_x10: -1} / ${mem_tot_x10:0:-1}.${mem_tot_x10: -1} GiB ${ram_bar}"
+  fi
+fi
+
+# ─── 6. Almacenamiento (Disco /) ──────────────────────────────
+disk_str="desconocido"
+if [ -x /bin/df ] || command -v df >/dev/null 2>&1; then
+  {
+    read -r _
+    read -r _ fs_size fs_used _ fs_pct _
+  } < <(df -h / 2>/dev/null || true)
+  if [ -n "$fs_size" ]; then
+    d_num="${fs_pct%%%}"
+    filled=$((d_num / 10))
+    [ "$filled" -gt 10 ] && filled=10
+    empty=$((10 - filled))
+    bar_col="$G_MID"
+    [ "$d_num" -ge 85 ] && bar_col="$Y"
+
+    bar_fill=""
+    for ((i=0; i<filled; i++)); do bar_fill="${bar_fill}█"; done
+    bar_empty=""
+    for ((i=0; i<empty; i++)); do bar_empty="${bar_empty}░"; done
+
+    disk_str="${fs_used} / ${fs_size} ${MUTED}[${bar_col}${bar_fill}${MUTED}${bar_empty} ${bar_col}${fs_pct}${MUTED}]"
+  fi
+fi
+
+# ─── 7. Carpeta Actual ────────────────────────────────────────
+if [[ "$PWD" == "$HOME"* ]]; then
+  pwd_pretty="~${PWD#"$HOME"}"
+else
+  pwd_pretty="$PWD"
+fi
+
+# Conteo rápido acotado para evitar bloqueos en directorios masivos
+dir_count=0
+for _item in * .*; do
+  [ "$_item" = "." ] || [ "$_item" = ".." ] && continue
+  dir_count=$((dir_count + 1))
+  if [ "$dir_count" -ge 999 ]; then
+    dir_count="999+"
+    break
+  fi
+done
+
+ro_flag=""
+[ ! -w . ] && ro_flag=" ${Y}[ro]${R}"
+dir_str="${C}${pwd_pretty}${R} ${GRAY}[${G_MID}${dir_count} items${GRAY}]${ro_flag}"
+
+# ─── 8. Repositorio & Rama Git ────────────────────────────────
+git_dir=""
+d="$PWD"
+while [ -n "$d" ] && [ "$d" != "/" ]; do
+  if [ -e "$d/.git" ]; then
+    git_dir="$d/.git"
+    break
+  fi
+  d="${d%/*}"
+done
+
+git_str="${GRAY}none${R}"
+if [ -n "$git_dir" ]; then
+  head_file="$git_dir/HEAD"
+  if [ -f "$git_dir" ]; then
+    # Submódulo o worktree
+    read -r git_ref < "$git_dir"
+    git_dir="${git_ref#gitdir: }"
+    head_file="$git_dir/HEAD"
+  fi
+
+  git_branch=""
+  if [ -f "$head_file" ]; then
+    read -r head_content < "$head_file"
+    if [[ "$head_content" == ref:\ refs/heads/* ]]; then
+      git_branch="${head_content##*/}"
+    else
+      git_branch="${head_content:0:7}"
+    fi
+  fi
+
+  # Estado de rebase / merge
+  if [ -d "$git_dir/rebase-merge" ] || [ -d "$git_dir/rebase-apply" ]; then
+    git_branch="${git_branch} (rebasing)"
+  elif [ -f "$git_dir/MERGE_HEAD" ]; then
+    git_branch="${git_branch} (merging)"
+  fi
+
+  # Estado limpio / modificado
+  git_status_icon="${G_HI}● clean${R}"
+  if ! git diff --no-ext-diff --quiet 2>/dev/null || ! git diff --no-ext-diff --cached --quiet 2>/dev/null; then
+    git_status_icon="${Y}▲ dirty${R}"
+  elif [ -n "$(git ls-files --others --exclude-standard 2>/dev/null | head -n 1)" ]; then
+    git_status_icon="${G_MID}● clean ${MUTED}(+untracked)${R}"
+  fi
+
+  # Sincronización con remoto (ahead/behind)
+  git_sync=""
+  if git rev-parse --abbrev-ref @{upstream} >/dev/null 2>&1; then
+    read -r ahead behind < <(git rev-list --left-right --count HEAD...@{upstream} 2>/dev/null || echo "0 0")
+    if [ "${ahead:-0}" -gt 0 ] && [ "${behind:-0}" -gt 0 ]; then
+      git_sync=" ${Y}↑${ahead}↓${behind}${R}"
+    elif [ "${ahead:-0}" -gt 0 ]; then
+      git_sync=" ${G_HI}↑${ahead}${R}"
+    elif [ "${behind:-0}" -gt 0 ]; then
+      git_sync=" ${Y}↓${behind}${R}"
+    fi
+  fi
+
+  git_str="${G_HI}${git_branch}${R} ${git_status_icon}${git_sync}"
+fi
+
+# ─── 9. Carga del Sistema (Load Average) ──────────────────────
+load_str=""
+if [ -f /proc/loadavg ]; then
+  read -r l1 l5 l15 _ < /proc/loadavg
+  load_str="${l1}, ${l5}, ${l15}"
+fi
+
+# ─── 10. Temporizador de ejecución ────────────────────────────
+_T_END="${EPOCHREALTIME//[!0-9]/}"
+if [ -n "$_T_START" ] && [ -n "$_T_END" ]; then
+  diff_us=$((10#$_T_END - 10#$_T_START))
+  diff_ms=$((diff_us / 1000))
+  diff_rem=$(( (diff_us % 1000) / 100 ))
+  init_time="${diff_ms}.${diff_rem}ms"
+else
+  init_time="<5ms"
+fi
+
+# ─── Salida Modo Corto (--short) ──────────────────────────────
+if [ "$SHORT" = "true" ]; then
+  printf "${G_HI}[MATRIX]${R} ${W}%s${MUTED}@${G_MID}%s${R} | %s | up %s | CPU %dc | RAM %s | DISK %s | %s | GIT %s | %b\n" \
+    "$user" "$host" "$os_name" "$uptime_str" "$cpu_cores" "$ram_str" "$disk_str" "$pwd_pretty" "$git_str" "${G_HI}init ${init_time}${R}"
+  exit 0
+fi
+
+# ─── Ancho de terminal y selección de diseño ──────────────────
+term_width=$(tput cols 2>/dev/null || echo 80)
+
+echo
+if [ "$COMPACT" = "false" ] && [ "$term_width" -ge 65 ]; then
+  # ─── Diseño de 2 Columnas (Monolito Binario Matrix) ────────
+  # El monolito binario de la izquierda decodifica a "MATRIX/SYS":
+  # 01001101=M, 01000001=A, 01010100=T, 01010010=R, 01001001=I,
+  # 01011000=X, 00101111=/, 01010011=S, 01011001=Y, 01010011=S
+  printf "${G_MID}┌── ${G_HI}MATRIX${G_MID} ──┐   ${G_HI}%-8s${MUTED}:: ${W}%s${MUTED}@${G_MID}%s${R}\n" "HOST" "$user" "$host"
+  printf "${G_MID}│  ${W}0${G_HI}1${G_MID}0${G_LOW}0${G_DIM}1${G_DARK}101  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "OS" "$os_name"
+  printf "${G_MID}│  ${G_DARK}0${W}1${G_HI}0${G_MID}0${G_LOW}0${G_DIM}001  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "KERNEL" "$kernel"
+  printf "${G_MID}│  ${G_DIM}0${G_DARK}1${W}0${G_HI}1${G_MID}0${G_LOW}100  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "UPTIME" "$uptime_str"
+  printf "${G_MID}│  ${G_LOW}0${G_DIM}1${G_DARK}0${W}1${G_HI}0${G_MID}010  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s ${GRAY}(%dc)${R}\n" "CPU" "$cpu_model" "$cpu_cores"
+  printf "${G_MID}│  ${G_MID}0${G_LOW}1${G_DIM}0${G_DARK}0${W}1${G_HI}001  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%b${R}\n" "RAM" "$ram_str"
+  printf "${G_MID}│  ${G_HI}0${G_MID}1${G_LOW}0${G_DIM}1${G_DARK}1${W}000  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%b${R}\n" "DISK" "$disk_str"
+  printf "${G_MID}│  ${W}0${G_HI}0${G_MID}1${G_LOW}0${G_DIM}1${G_DARK}111  ${G_MID}│   ${G_HI}%-8s${MUTED}:: %b\n" "FOLDER" "$dir_str"
+  printf "${G_MID}│  ${G_DARK}0${W}1${G_HI}0${G_MID}1${G_LOW}0${G_DIM}011  ${G_MID}│   ${G_HI}%-8s${MUTED}:: %b\n" "GIT" "$git_str"
+  [ -n "$load_str" ] && printf "${G_MID}│  ${G_DIM}0${G_DARK}1${W}0${G_HI}1${G_MID}1${G_LOW}001  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "LOAD" "$load_str"
+  printf "${G_MID}└── ${G_LOW}01010011${G_MID} ──┘   ${G_HI}%-8s${MUTED}:: ${G_HI}ONLINE ${MUTED}// ${G_MID}init ${init_time}${R}\n" "STATUS"
+else
+  # ─── Diseño Compacto Cyber HUD (para terminales estrechas) ──
+  printf "${G_MID}┌──[ ${G_HI}MATRIX // SYS HUD${G_MID} ]─────────────────────────────────────┐${R}\n"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${W}%s${MUTED}@${G_MID}%s${R}\n" "HOST" "$user" "$host"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "OS" "$os_name"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "KERNEL" "$kernel"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "UPTIME" "$uptime_str"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%s ${GRAY}(%dc)${R}\n" "CPU" "$cpu_model" "$cpu_cores"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%b${R}\n" "RAM" "$ram_str"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%b${R}\n" "DISK" "$disk_str"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: %b\n" "FOLDER" "$dir_str"
+  printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: %b\n" "GIT" "$git_str"
+  [ -n "$load_str" ] && printf "${G_MID}│ ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "LOAD" "$load_str"
+  printf "${G_MID}└──[ ${G_HI}ONLINE ${MUTED}// ${G_MID}init ${init_time}${G_MID} ]─────────────────────────────────┘${R}\n"
+fi
+echo

@@ -73,7 +73,7 @@ fi
 
 export CURSOR_MAX_MEMORY=4096
 
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
 
 # Added by Antigravity CLI installer

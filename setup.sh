@@ -47,6 +47,8 @@ fi
 . "$LIB_DIR/ram-tune.sh"
 # shellcheck source=lib/agent-tools.sh
 . "$LIB_DIR/agent-tools.sh"
+# shellcheck source=lib/matrix-fetch.sh
+. "$LIB_DIR/matrix-fetch.sh"
 # shellcheck source=lib/change-shell.sh
 . "$LIB_DIR/change-shell.sh"
 
@@ -87,7 +89,7 @@ Opciones:
 
 Pasos disponibles (en orden):
   preflight, system-update, core-packages, shell, terminal,
-  multiplexer, dev-tools, runtimes, agent-tools, agent-aliases, gnome,
+  multiplexer, dev-tools, runtimes, agent-tools, agent-aliases, matrix-fetch, gnome,
   sysctl, ssd, ram, network, git-config, dotfiles-link, change-shell, post-install
 
 Variables de entorno equivalentes:
@@ -167,7 +169,7 @@ run_step() {
     return 0
   fi
 
-  printf '\n%s[%d/20]%s %s\n' "$_BOLD" "$_STEP_CURRENT" "$_RESET" "$description"
+  printf '\n%s[%d/21]%s %s\n' "$_BOLD" "$_STEP_CURRENT" "$_RESET" "$description"
 
   local start_time
   start_time=$(date +%s)
@@ -569,6 +571,12 @@ step_agent_aliases() {
   configure_agent_aliases
 }
 
+# ─── Matrix fetch ──────────────────────────────────────────
+step_matrix_fetch() {
+  should_run matrix-fetch || return 0
+  configure_matrix_fetch
+}
+
 # ─── SO-specific tweaks ────────────────────────────────────
 step_gnome() {
   should_run gnome || return 0
@@ -847,6 +855,12 @@ trap 'on_error ${LINENO} "$BASH_COMMAND"' ERR
 _SUDO_KEEPALIVE_PID=""
 
 sudo_keepalive() {
+  [ "$DOTFILES_DRY_RUN" = "true" ] && return 0
+  if [ -n "$DOTFILES_ONLY" ]; then
+    case "$DOTFILES_ONLY" in
+      agent-aliases|matrix-fetch|dotfiles-link|git-config) return 0 ;;
+    esac
+  fi
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
     sudo -v 2>/dev/null || true
     (while true; do sudo -n true 2>/dev/null; sleep 60; done) &
@@ -943,6 +957,7 @@ main() {
   run_step runtimes  "Runtimes (mise)"                  step_runtimes               optional
   run_step agent-tools "Agent tools"                    step_agent_tools            optional
   run_step agent-aliases "Agent aliases"                step_agent_aliases          optional
+  run_step matrix-fetch "Matrix fastfetch setup"        step_matrix_fetch           optional
 
   # SO-specific
   case "$DOTFILES_OS" in

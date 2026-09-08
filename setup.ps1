@@ -241,6 +241,7 @@ $steps = @(
     "runtimes",
     "agent-tools",
     "agent-aliases",
+    "matrix-fetch",
     "windows-tweaks",
     "ssd",
     "ram",
@@ -521,6 +522,49 @@ if (-not (Test-StepSkipped "agent-aliases")) {
             Add-Content -Path $profileLocal -Value $block -Encoding UTF8
             Log-Success "agent aliases configurados en $profileLocal ($($foundTools.Count) alias)"
         }
+    }
+}
+
+# ── 10c. matrix-fetch ──
+if (-not (Test-StepSkipped "matrix-fetch")) {
+    Invoke-Step -Name "matrix-fetch" -Description "Matrix fastfetch setup" -Action {
+        $profileDir   = Split-Path $PROFILE -Parent
+        $profileLocal = Join-Path $profileDir "profile.local.ps1"
+        $markerBegin  = "# ─── DOTFILES:MATRIX-FETCH BEGIN ──"
+        $markerEnd    = "# ─── DOTFILES:MATRIX-FETCH END ────"
+
+        if ($DryRun) {
+            Log-Info "[dry-run] configuraría matrix-fetch en $profileLocal"
+            return
+        }
+
+        if (-not (Test-Path $profileDir)) { New-Item -ItemType Directory -Path $profileDir -Force | Out-Null }
+
+        if (Test-Path $profileLocal) {
+            $existingLines = Get-Content $profileLocal -ErrorAction SilentlyContinue
+            $newLines = [System.Collections.Generic.List[string]]::new()
+            $inBlock = $false
+            foreach ($line in $existingLines) {
+                if ($line -match [regex]::Escape($markerBegin)) { $inBlock = $true; continue }
+                if ($line -match [regex]::Escape($markerEnd))   { $inBlock = $false; continue }
+                if (-not $inBlock) { $newLines.Add($line) }
+            }
+            $newLines | Set-Content $profileLocal -Encoding UTF8
+        }
+
+        $block = [System.Collections.Generic.List[string]]::new()
+        $block.Add("")
+        $block.Add($markerBegin)
+        $block.Add("# Gestionado por dotfiles — no editar manualmente")
+        $block.Add("function matrix-fetch {")
+        $block.Add("    if (Get-Command bash -ErrorAction SilentlyContinue) { & bash `"$PSScriptRoot\bin\matrix-fetch`" @args }")
+        $block.Add("}")
+        $block.Add("Set-Alias -Name fetch -Value matrix-fetch -ErrorAction SilentlyContinue")
+        $block.Add("if (`$Host.UI.RawUI -and -not (`$env:TERM -eq 'dumb')) { matrix-fetch }")
+        $block.Add($markerEnd)
+
+        Add-Content -Path $profileLocal -Value $block -Encoding UTF8
+        Log-Success "matrix-fetch configurado en $profileLocal"
     }
 }
 

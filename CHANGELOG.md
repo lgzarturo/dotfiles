@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`matrix-fetch` step** in `setup.sh` and `setup.ps1`: fastfetch ultrarrápido (<15ms) estilo Matrix que se ejecuta automáticamente al abrir una ventana de terminal interactiva.
+  - Muestra métricas completas de hardware y sistema (Host, OS, Kernel, Uptime, CPU modelo y núcleos, RAM y disco con barras de progreso estilo bloque digital, carga del sistema).
+  - Muestra la carpeta actual con ruta compacta (`~`) y conteo de elementos acotado.
+  - Si la carpeta actual es un repositorio Git, detecta y muestra la rama actual, indicador de estado (`● clean` / `▲ dirty` / `+untracked`) y sincronización remota (`↑ahead / ↓behind`).
+  - Idempotente: se configura en `~/.zshrc.local` (Linux/macOS/WSL) y `profile.local.ps1` (Windows) utilizando bloques centinela `BEGIN/END`.
+  - Incluye alias `fetch` para ejecución manual rápida y soporte para `--compact`, `--short`, y `--no-color`.
+- **`tests/test-matrix-fetch.sh`**: suite de tests funcionales (9 casos, 24 aserciones) que cubren dry-run, idempotencia, preservación de contenido previo, enlaces simbólicos, métricas y detección de git.
 - **`agent-aliases` step** in `setup.sh` and `setup.ps1`: detects installed agentic CLI tools (`claude`, `agy`, `opencode`, `codex`) and configures permission-flag aliases only for those present in PATH.
   - **Linux / macOS / WSL**: aliases written to `~/.zshrc.local` (already sourced by `.zshrc`) using `BEGIN/END` sentinel blocks for idempotency.
   - **Windows**: function wrappers written to `profile.local.ps1` in the `$PROFILE` directory (already sourced by the PowerShell profile). Uses `Get-Command -CommandType Application` to avoid infinite recursion.

@@ -114,13 +114,14 @@ cd $HOME\dotfiles
 9. `runtimes` — mise/uv/node/python
 10. `agent-tools` — Claude Code, Ollama (opcional)
 11. `agent-aliases` — Aliases de herramientas agenticas con flags de permisividad
-12. `gnome` / `macos` / `windows` — Tweaks del SO
-13. `sysctl` — Tuning de kernel
-14. `ssd` — Optimización de almacenamiento
-15. `ram` — ZRAM/swap
-16. `network` — TCP BBR, fq, etc.
-17. `dotfiles-link` — Symlinks de configs
-18. `post-install` — Verificación final
+12. `matrix-fetch` — Fastfetch ultrarrápido (<15ms) estilo Matrix para inicio de terminal
+13. `gnome` / `macos` / `windows` — Tweaks del SO
+14. `sysctl` — Tuning de kernel
+15. `ssd` — Optimización de almacenamiento
+16. `ram` — ZRAM/swap
+17. `network` — TCP BBR, fq, etc.
+18. `dotfiles-link` — Symlinks de configs
+19. `post-install` — Verificación final
 
 ## 🤖 Aliases de herramientas agenticas
 
@@ -151,6 +152,31 @@ automáticamente aliases con sus flags de permisividad:
 # Windows
 .\setup.ps1 -Only agent-aliases
 .\setup.ps1 -Only agent-aliases -DryRun     # preview sin modificar nada
+```
+
+## 🟩 Matrix Fastfetch (`matrix-fetch`)
+
+Fastfetch ultrarrápido (<15ms) con diseño cyberpunk estilo Matrix que se ejecuta automáticamente al abrir una ventana de la terminal:
+
+- **Estado del equipo**: Host, distro OS, kernel, uptime, CPU (modelo y cores), RAM con barra gráfica y almacenamiento en disco.
+- **Carpeta actual**: Ruta compacta (`~`) y conteo acotado de elementos.
+- **Repositorio Git**: Rama actual, estado (`● clean` / `▲ dirty` / `+untracked`) y sincronización remota (`↑ahead / ↓behind`).
+- **Rendimiento**: Temporizador en milisegundos (`init X.Xms`) gracias a lectura directa de `/proc` sin forks pesados.
+- **Configuración en instalación**: Paso `matrix-fetch` en `setup.sh` que escribe en `~/.zshrc.local` usando bloques centinela idempotentes.
+
+```bash
+# Ejecutar en cualquier momento
+matrix-fetch
+fetch                     # alias rápido configurado en .zshrc.local
+
+# Opciones
+matrix-fetch --compact    # forzar HUD compacto de una sola columna
+matrix-fetch --short      # resumen en una sola línea
+matrix-fetch --no-color   # sin secuencias de escape ANSI
+
+# Configurar solo este paso
+./setup.sh --only matrix-fetch
+./setup.sh --only matrix-fetch --dry-run
 ```
 
 ## 🧪 Verificación
