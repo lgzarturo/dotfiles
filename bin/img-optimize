@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# img-optimize — Image optimizer: converts a PNG to responsive WebP variants
+#
+# Generates desktop (1920px), tablet (1024px), and mobile (600px) WebP versions
+# of an input image, suitable for blog/CMS use.
+#
+# Usage: img-optimize <input-image.png> [output-dir]
+#
+# Dependencies: ImageMagick (convert command)
+#   Install hints:
+#     Fedora/RHEL:  sudo dnf install ImageMagick
+#     Ubuntu/Debian: sudo apt install imagemagick
+#     Arch:         sudo pacman -S imagemagick
+#     macOS:        brew install imagemagick
+#
+# Cross-distro: works wherever ImageMagick is installed.
+
+set -euo pipefail
+
+# ── Color helpers ─────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'
+NC='\033[0m'
+if [[ ! -t 1 ]]; then
+  GREEN=''
+  NC=''
+fi
+
+# ── Dependency check ──────────────────────────────────────────────────────────
+if ! command -v convert &>/dev/null; then
+  echo "Error: 'convert' (ImageMagick) is not installed." >&2
+  echo "  Fedora/RHEL:   sudo dnf install ImageMagick" >&2
+  echo "  Ubuntu/Debian: sudo apt install imagemagick" >&2
+  echo "  Arch:          sudo pacman -S imagemagick" >&2
+  echo "  macOS:         brew install imagemagick" >&2
+  exit 1
+fi
+
+# ── Argument handling ─────────────────────────────────────────────────────────
+INPUT_FILE="${1:-}"
+OUTPUT_DIR="${2:-./processed_assets}"
+
+if [[ -z "$INPUT_FILE" ]]; then
+  echo "Error: input PNG file is required." >&2
+  echo "Usage: $(basename "$0") <input-image.png> [output-dir]" >&2
+  exit 1
+fi
+
+if [[ ! -f "$INPUT_FILE" ]]; then
+  echo "Error: file not found: $INPUT_FILE" >&2
+  exit 1
+fi
+
+# Extract base name without extension
+FILENAME=$(basename -- "$INPUT_FILE")
+NAME="${FILENAME%.*}"
+
+echo -e "${GREEN}🚀 Processing image: $NAME${NC}"
+
+# Create output directory if it doesn't exist
+mkdir -p "$OUTPUT_DIR"
+
+# ── Generate responsive WebP variants ─────────────────────────────────────────
+
+# 1. Desktop — 1920px wide, high quality
+echo "   ... Generating Desktop variant (1920px)"
+convert "$INPUT_FILE" \
+  -resize 1920x \
+  -quality 85 \
+  -define webp:lossless=false \
+  "${OUTPUT_DIR}/${NAME}-desktop.webp"
+
+# 2. Tablet — 1024px wide, medium quality
+echo "   ... Generating Tablet variant (1024px)"
+convert "$INPUT_FILE" \
+  -resize 1024x \
+  -quality 80 \
+  "${OUTPUT_DIR}/${NAME}-tablet.webp"
+
+# 3. Mobile — 600px wide, high compression for fast loading
+echo "   ... Generating Mobile variant (600px)"
+convert "$INPUT_FILE" \
+  -resize 600x \
+  -quality 75 \
+  -strip \
+  "${OUTPUT_DIR}/${NAME}-mobile.webp"
+
+echo -e "${GREEN}✅ Done! Images saved to $OUTPUT_DIR${NC}"
+echo "   - ${NAME}-desktop.webp"
+echo "   - ${NAME}-tablet.webp"
+echo "   - ${NAME}-mobile.webp"

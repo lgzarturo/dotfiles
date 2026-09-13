@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+#
+# img-batch-webp — Batch convert PNGs to responsive WebP variants
+#
+# Processes all PNG files in an input directory and generates mobile (600px),
+# tablet (1024px), and full-HD (1920px) WebP versions in an output directory.
+#
+# Usage: img-batch-webp [input-dir] [output-dir]
+#
+# Arguments:
+#   input-dir   Directory containing PNG files (default: current directory)
+#   output-dir  Directory for WebP output (default: ./webp)
+#
+# Output naming convention:
+#   <name>-mobile.webp   600px wide
+#   <name>-tablet.webp   1024px wide
+#   <name>.webp          1920px wide (full HD)
+#
+# Dependencies: ImageMagick >= 7 (magick command)
+#   Install hints:
+#     Fedora/RHEL:   sudo dnf install ImageMagick
+#     Ubuntu/Debian: sudo apt install imagemagick
+#     Arch:          sudo pacman -S imagemagick
+#     macOS:         brew install imagemagick
+#
+# Cross-distro: works wherever ImageMagick 7+ is installed.
+
+set -euo pipefail
+
+# ── Dependency check ──────────────────────────────────────────────────────────
+if ! command -v magick &>/dev/null; then
+  echo "Error: 'magick' (ImageMagick 7+) is not installed." >&2
+  echo "  Fedora/RHEL:   sudo dnf install ImageMagick" >&2
+  echo "  Ubuntu/Debian: sudo apt install imagemagick" >&2
+  echo "  Arch:          sudo pacman -S imagemagick" >&2
+  echo "  macOS:         brew install imagemagick" >&2
+  exit 1
+fi
+
+# ── Argument handling ─────────────────────────────────────────────────────────
+INPUT_DIR="${1:-.}"
+OUTPUT_DIR="${2:-webp}"
+
+if [[ ! -d "$INPUT_DIR" ]]; then
+  echo "Error: input directory not found: $INPUT_DIR" >&2
+  exit 1
+fi
+
+mkdir -p "$OUTPUT_DIR"
+
+shopt -s nullglob
+PNGS=("$INPUT_DIR"/*.png)
+shopt -u nullglob
+
+if [[ ${#PNGS[@]} -eq 0 ]]; then
+  echo "No PNG files found in: $INPUT_DIR"
+  exit 0
+fi
+
+echo "Processing ${#PNGS[@]} PNG file(s) → $OUTPUT_DIR"
+
+for img in "${PNGS[@]}"; do
+  filename="$(basename "$img" .png)"
+
+  # Mobile — 600px wide
+  magick "$img" \
+    -resize 600x \
+    -strip \
+    -quality 80 \
+    -define webp:method=6 \
+    -define webp:alpha-quality=80 \
+    "${OUTPUT_DIR}/${filename}-mobile.webp"
+
+  # Tablet — 1024px wide
+  magick "$img" \
+    -resize 1024x \
+    -strip \
+    -quality 82 \
+    -define webp:method=6 \
+    -define webp:alpha-quality=82 \
+    "${OUTPUT_DIR}/${filename}-tablet.webp"
+
+  # Full HD — 1920px wide (no suffix)
+  magick "$img" \
+    -resize 1920x \
+    -strip \
+    -quality 85 \
+    -define webp:method=6 \
+    -define webp:alpha-quality=85 \
+    "${OUTPUT_DIR}/${filename}.webp"
+
+  echo "  ✓ $filename"
+done
+
+echo "Done. Output: $OUTPUT_DIR"

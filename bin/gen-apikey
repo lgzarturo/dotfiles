@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+#
+# gen-apikey — Generador seguro y rápido de API Keys y Secretos
+# Disponible en: /home/algforge/.dotfiles/bin/gen-apikey
+#
+# OS:           Linux, macOS (cualquier distro)
+# Dependencias: /dev/urandom (estándar en Linux/macOS) o openssl
+# Uso:
+#   gen-apikey [OPCIONES] <VARIABLE:LONGITUD | VARIABLE=LONGITUD>...
+# Ejemplos:
+#   gen-apikey JWT_SECRET:32,JWT_REFRESH_SECRET:32,API_KEY_SALT:16
+#   gen-apikey JWT_SECRET:64 API_KEY_SALT:16
+#   gen-apikey --hex API_HASH:32
+#   gen-apikey --json JWT_SECRET:32,REFRESH:32
+#   gen-apikey --export SECRET:32
+
+set -euo pipefail
+
+# Definición de juegos de caracteres
+CHARSET_ALPHANUMERIC="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+CHARSET_HEX="0123456789abcdef"
+CHARSET_HEX_UPPER="0123456789ABCDEF"
+CHARSET_BASE64URL="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+CHARSET_SYMBOLS="!@#$%^&*()-_=+[]{}?,."
+CHARSET_FULL="${CHARSET_ALPHANUMERIC}${CHARSET_SYMBOLS}"
+
+# Valores por defecto
+DEFAULT_LENGTH=32
+SELECTED_CHARSET="$CHARSET_ALPHANUMERIC"
+OUTPUT_FORMAT="env" # env, export, json
+VALUES_ONLY=false
+
+show_help() {
+  cat << 'EOF'
+Generador seguro y rápido de API Keys y Secretos
+
+Uso:
+  gen-apikey [OPCIONES] ESPECIFICACIÓN...
+
+Ejemplos:
+  gen-apikey JWT_SECRET:32,JWT_REFRESH_SECRET:32,API_KEY_SALT:16
+  gen-apikey JWT_SECRET:64 API_KEY_SALT:16
+  gen-apikey --hex API_HASH:32
+  gen-apikey --json JWT_SECRET:32,REFRESH:32
+  gen-apikey --export SECRET:32
+
+Opciones:
+  -l, --length NUM        Longitud por defecto si no se especifica (por defecto: 32)
+  -a, --alphanumeric      Usar solo alfanuméricos A-Z, a-z, 0-9 (por defecto)
+  -x, --hex               Usar juego de caracteres hexadecimal en minúsculas (0-9, a-f)
+  -X, --HEX               Usar juego de caracteres hexadecimal en mayúsculas (0-9, A-F)
+  -b, --base64url         Usar caracteres seguros para URL (A-Z, a-z, 0-9, _, -)
+  -s, --symbols           Incluir símbolos especiales seguros
+  -c, --charset STR       Especificar un conjunto de caracteres personalizado
+  -j, --json              Formato de salida JSON
+  -e, --export            Formato de salida con 'export KEY="VALUE"'
+  -v, --values-only       Imprimir solo los valores generados (un valor por línea)
+  -h, --help              Mostrar esta ayuda y salir
+EOF
+}
+
+# Generar cadena aleatoria de longitud $1 usando $SELECTED_CHARSET
+generate_secret() {
+  local len="$1"
+  if [[ ! "$len" =~ ^[0-9]+$ ]] || [[ "$len" -le 0 ]]; then
+    echo "Error: La longitud debe ser un entero positivo. Recibido: '$len'" >&2
+    return 1
+  fi
+
+  # Preferir /dev/urandom con tr para rapidez y entropía criptográficamente segura
+  if [[ -c /dev/urandom ]]; then
+    (set +o pipefail; LC_ALL=C tr -dc "$SELECTED_CHARSET" < /dev/urandom 2>/dev/null | head -c "$len")
+  elif command -v openssl > /dev/null 2>&1; then
+    openssl rand -base64 $((len * 2)) | LC_ALL=C tr -dc "$SELECTED_CHARSET" | head -c "$len"
+  else
+    echo "Error: No se encontró /dev/urandom ni openssl para generar entropía." >&2
+    return 1
+  fi
+}
+
+# Parsear opciones de CLI
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    -l|--length)
+      DEFAULT_LENGTH="$2"
+      shift 2
+      ;;
+    -a|--alphanumeric)
+      SELECTED_CHARSET="$CHARSET_ALPHANUMERIC"
+      shift
+      ;;
+    -x|--hex)
+      SELECTED_CHARSET="$CHARSET_HEX"
+      shift
+      ;;
+    -X|--HEX)
+      SELECTED_CHARSET="$CHARSET_HEX_UPPER"
+      shift
+      ;;
+    -b|--base64url)
+      SELECTED_CHARSET="$CHARSET_BASE64URL"
+      shift
+      ;;
+    -s|--symbols)
+      SELECTED_CHARSET="$CHARSET_FULL"
+      shift
+      ;;
+    -c|--charset)
+      SELECTED_CHARSET="$2"
+      shift 2
+      ;;
+    -j|--json)
+      OUTPUT_FORMAT="json"
+      shift
+      ;;
+    -e|--export)
+      OUTPUT_FORMAT="export"
+      shift
+      ;;
+    -v|--values-only)
+      VALUES_ONLY=true
+      shift
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ ${#ARGS[@]} -eq 0 ]]; then
+  echo "Error: Debe especificar al menos una clave a generar (ej. JWT_SECRET:32)." >&2
+  echo "Ejecute '$0 --help' para ver ejemplos de uso." >&2
+  exit 1
+fi
+
+# Expandir argumentos separados por comas
+SPECS=()
+for arg in "${ARGS[@]}"; do
+  IFS=',' read -ra ADDR <<< "$arg"
+  for item in "${ADDR[@]}"; do
+    if [[ -n "$item" ]]; then
+      SPECS+=("$item")
+    fi
+  done
+done
+
+# Procesar especificaciones y generar pares clave:longitud
+KEYS=()
+VALUES=()
+
+for spec in "${SPECS[@]}"; do
+  key=""
+  len="$DEFAULT_LENGTH"
+
+  if [[ "$spec" == *":"* ]]; then
+    key="${spec%%:*}"
+    len="${spec#*:}"
+  elif [[ "$spec" == *"="* ]]; then
+    key="${spec%%=*}"
+    len="${spec#*=}"
+  else
+    key="$spec"
+  fi
+
+  if [[ -z "$key" ]]; then
+    echo "Error: Especificación inválida '$spec'" >&2
+    exit 1
+  fi
+
+  val=$(generate_secret "$len")
+  KEYS+=("$key")
+  VALUES+=("$val")
+done
+
+# Formatear la salida según el formato seleccionado
+if [[ "$VALUES_ONLY" == true ]]; then
+  for val in "${VALUES[@]}"; do
+    echo "$val"
+  done
+elif [[ "$OUTPUT_FORMAT" == "json" ]]; then
+  echo "{"
+  count=${#KEYS[@]}
+  for (( i=0; i<count; i++ )); do
+    k="${KEYS[$i]}"
+    v="${VALUES[$i]}"
+    comma=","
+    if [[ $i -eq $((count - 1)) ]]; then
+      comma=""
+    fi
+    echo "  \"$k\": \"$v\"$comma"
+  done
+  echo "}"
+elif [[ "$OUTPUT_FORMAT" == "export" ]]; then
+  for (( i=0; i<${#KEYS[@]}; i++ )); do
+    echo "export ${KEYS[$i]}=\"${VALUES[$i]}\""
+  done
+else
+  for (( i=0; i<${#KEYS[@]}; i++ )); do
+    echo "${KEYS[$i]}=${VALUES[$i]}"
+  done
+fi

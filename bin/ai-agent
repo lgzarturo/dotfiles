@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+#
+# ai-agent — CLI Controller para Agentes de IA Local (Ollama)
+# Disponible en: /home/algforge/.dotfiles/bin/ai-agent
+#
+# OS:           Linux, macOS (cualquier distro)
+# Dependencias: ollama, curl, jq
+# Uso:
+#   ai-agent <comando> [argumentos]
+# Comandos:
+#   architect  <prompt|archivo>   Agente Arquitecto de Software
+#   coder      <prompt|archivo>   Agente Codificador de Producción
+#   test       <archivo|código>   Generador de Pruebas
+#   validate   <archivo|diff>     Auditor de Seguridad y Calidad
+#   complete   <prefijo> <sufijo> Autocompletado FIM
+#   status                        Estado del servicio Ollama
+#   benchmark                     Mide tokens por segundo
+#   list                          Lista agentes y modelos disponibles
+# Ejemplos:
+#   ai-agent architect "Diseña una API REST para pagos con idempotencia"
+#   cat main.go | ai-agent validate
+#   git diff | ai-agent validate
+#   ai-agent test ./src/auth.py
+#   ai-agent benchmark
+
+set -euo pipefail
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+OLLAMA_URL="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+BIN_OLLAMA="${OLLAMA_BIN:-$HOME/.local/bin/ollama}"
+if ! command -v "$BIN_OLLAMA" &>/dev/null; then
+  BIN_OLLAMA="$(command -v ollama 2>/dev/null || true)"
+fi
+
+c_bold="" c_cyan="" c_green="" c_yellow="" c_red="" c_dim="" c_reset=""
+if [[ -t 1 ]]; then
+  c_bold=$'\033[1m'
+  c_cyan=$'\033[1;36m'
+  c_green=$'\033[32m'
+  c_yellow=$'\033[33m'
+  c_red=$'\033[31m'
+  c_dim=$'\033[2m'
+  c_reset=$'\033[0m'
+fi
+
+info() { printf '%s>> %s%s\n' "$c_cyan" "$*" "$c_reset"; }
+ok()   { printf '  %s[OK]%s %s\n' "$c_green" "$c_reset" "$*"; }
+warn() { printf '  %s[AVISO]%s %s\n' "$c_yellow" "$c_reset" "$*"; }
+err()  { printf '  %s[ERROR]%s %s\n' "$c_red" "$c_reset" "$*" >&2; }
+
+usage() {
+  cat <<EOF
+${c_bold}ai-agent${c_reset} — Interfaz de línea de comandos para Agentes de IA Local (Ollama)
+
+${c_bold}COMANDOS DE AGENTES:${c_reset}
+  ${c_green}architect${c_reset} <prompt|archivo>   Consulta al Agente Arquitecto (Diseño de sistemas, patrones, APIs)
+  ${c_green}coder${c_reset}     <prompt|archivo>   Consulta al Agente Codificador (Código de producción, refactor)
+  ${c_green}test${c_reset}      <archivo|código>   Consulta al Generador de Pruebas (Unit tests, casos borde, mocks)
+  ${c_green}validate${c_reset}  <archivo|diff>     Consulta al Agente Validador (Auditoría de seguridad, OWASP, bugs)
+  ${c_green}complete${c_reset}  <prefijo> <sufijo> Prueba el motor de autocompletado en modo Fill-In-the-Middle
+
+${c_bold}GESTIÓN Y MONITOREO:${c_reset}
+  ${c_green}status${c_reset}                       Estado del servicio Ollama, modelos en RAM y uso de hardware
+  ${c_green}benchmark${c_reset}                    Mide tokens por segundo (tok/s) y latencia
+  ${c_green}list${c_reset}                         Lista los agentes disponibles y modelos descargados
+  ${c_green}help, -h${c_reset}                     Muestra esta ayuda
+
+${c_bold}EJEMPLOS:${c_reset}
+  ai-agent architect "Diseña la estructura de base de datos para un e-commerce"
+  cat main.go | ai-agent validate
+  git diff | ai-agent validate
+  ai-agent test ./src/auth.py
+  ai-agent benchmark
+
+${c_bold}CONFIGURACIÓN:${c_reset}
+  OLLAMA_HOST   URL del servidor Ollama (por defecto: http://127.0.0.1:11434)
+  OLLAMA_BIN    Ruta al binario ollama (por defecto: \$HOME/.local/bin/ollama)
+EOF
+}
+
+check_service() {
+  if ! curl -sf "${OLLAMA_URL}/api/version" > /dev/null 2>&1; then
+    err "El servicio Ollama no responde en ${OLLAMA_URL}"
+    echo "Intenta iniciarlo con: systemctl --user start ollama.service"
+    exit 1
+  fi
+}
+
+cmd_status() {
+  info "Estado del Stack de IA Local"
+  if curl -sf "${OLLAMA_URL}/api/version" > /dev/null 2>&1; then
+    local ver
+    ver=$(curl -sf "${OLLAMA_URL}/api/version" | jq -r .version 2>/dev/null || echo "activo")
+    ok "Servidor Ollama: ACTIVO (versión $ver en ${OLLAMA_URL})"
+  else
+    warn "Servidor Ollama: DETENIDO o INACCESIBLE"
+  fi
+
+  printf '\n%s>> Recursos de Memoria (RAM):%s\n' "$c_bold" "$c_reset"
+  free -h | awk 'NR<=2{print "  " $0}'
+
+  printf '\n%s>> Modelos cargados actualmente en memoria RAM:%s\n' "$c_bold" "$c_reset"
+  local ps_out
+  ps_out=$(curl -sf "${OLLAMA_URL}/api/ps" 2>/dev/null || echo '{"models":[]}')
+  local num_loaded
+  num_loaded=$(echo "$ps_out" | jq '.models | length' 2>/dev/null || echo 0)
+  if [[ "$num_loaded" -gt 0 ]]; then
+    echo "$ps_out" | jq -r '.models[] | "  - \(.name) | RAM: \((.size_vram // .size) / 1048576 | floor) MB | Expira en: \(.expires_at)"' 2>/dev/null
+  else
+    echo "  (No hay modelos residentes en RAM; se cargarán en la primera petición)"
+  fi
+
+  printf '\n%s>> Modelos registrados en disco:%s\n' "$c_bold" "$c_reset"
+  local tags_out
+  tags_out=$(curl -sf "${OLLAMA_URL}/api/tags" 2>/dev/null || echo '{"models":[]}')
+  echo "$tags_out" | jq -r '.models[] | "  * \(.name) (\((.size / 1073741824 * 10 | floor) / 10) GB)"' 2>/dev/null
+}
+
+cmd_benchmark() {
+  check_service
+  info "Iniciando Benchmark de Inferencia"
+  echo "Probando 'qwen2.5-coder:1.5b-base' con generación determinista de 60 tokens..."
+
+  local res
+  res=$(curl -s "${OLLAMA_URL}/api/generate" -d '{
+    "model": "qwen2.5-coder:1.5b-base",
+    "prompt": "def quick_sort(items):\n",
+    "stream": false,
+    "options": {
+      "num_predict": 60,
+      "temperature": 0.0
+    }
+  }' 2>/dev/null)
+
+  if [[ -z "$res" ]] || ! echo "$res" | jq -e .response > /dev/null 2>&1; then
+    err "Falló el benchmark. ¿Está instalado 'qwen2.5-coder:1.5b-base'?"
+    exit 1
+  fi
+
+  local eval_count eval_duration load_duration toks
+  eval_count=$(echo "$res" | jq -r .eval_count)
+  eval_duration=$(echo "$res" | jq -r .eval_duration)
+  load_duration=$(echo "$res" | jq -r .load_duration)
+  toks=$(awk -v c="$eval_count" -v d="$eval_duration" 'BEGIN{if(d>0) printf "%.2f", c / (d / 1000000000); else print 0}')
+  local load_ms
+  load_ms=$(awk -v l="$load_duration" 'BEGIN{printf "%.2f", l / 1000000}')
+
+  ok "Resultados del Benchmark:"
+  printf '  - Tokens generados:   %s tokens\n' "$eval_count"
+  printf '  - Tiempo de carga:     %s ms\n' "$load_ms"
+  printf '  - Velocidad efectiva:  %s%s tok/s%s\n' "$c_green" "$toks" "$c_reset"
+  printf '  - Latencia por token:  %.2f ms/token\n' "$(awk -v t="$toks" 'BEGIN{if(t>0) printf "%.2f", 1000/t; else print 0}')"
+}
+
+cmd_list() {
+  check_service
+  info "Catálogo de Agentes Locales y Modelos:"
+  echo "${c_bold}AGENTES ESPECIALIZADOS:${c_reset}"
+  printf '  %-20s %-25s %s\n' "AGENTE" "MODELO BASE" "ROL"
+  printf '  %-20s %-25s %s\n' "local-architect" "qwen2.5-coder:14b / 7b" "Arquitecto de Software & APIs"
+  printf '  %-20s %-25s %s\n' "local-coder" "qwen2.5-coder:7b" "Desarrollador de Producción"
+  printf '  %-20s %-25s %s\n' "local-testgen" "qwen2.5-coder:7b" "Especialista QA & Generador Tests"
+  printf '  %-20s %-25s %s\n' "local-validator" "qwen2.5-coder:7b" "Auditor de Seguridad y Calidad"
+  printf '  %-20s %-25s %s\n' "local-autocomplete" "qwen2.5-coder:1.5b-base" "Motor FIM para editores"
+}
+
+query_agent() {
+  local agent_model=$1
+  local agent_title=$2
+  shift 2
+
+  check_service
+
+  local prompt_text=""
+  if [[ -p /dev/stdin ]]; then
+    prompt_text=$(cat -)
+    if [[ $# -gt 0 ]]; then
+      prompt_text="$*:
+$prompt_text"
+    fi
+  elif [[ $# -gt 0 && -f "$1" ]]; then
+    local filepath="$1"
+    shift
+    local extra="${*:-Analiza el siguiente código:}"
+    prompt_text="$extra ($filepath):
+\`\`\`
+$(cat "$filepath")
+\`\`\`"
+  elif [[ $# -gt 0 ]]; then
+    prompt_text="$*"
+  else
+    err "Debes proporcionar una instrucción o redirigir texto por stdin."
+    exit 1
+  fi
+
+  info "Invocando [$agent_title] usando $agent_model..."
+  printf '%s\n' "${c_dim}─────────────────────────────────────────────────────────────────────────────${c_reset}"
+
+  # Llamada con streaming nativo a la terminal
+  curl -s -N "${OLLAMA_URL}/api/generate" -d "$(jq -n \
+    --arg model "$agent_model" \
+    --arg prompt "$prompt_text" \
+    '{model: $model, prompt: $prompt, stream: true}')" \
+    | jq -j --unbuffered '.response // empty'
+  printf '\n%s\n' "${c_dim}─────────────────────────────────────────────────────────────────────────────${c_reset}"
+}
+
+# Subcomandos
+case "${1:-}" in
+  architect)
+    shift
+    query_agent "local-architect" "Arquitecto de Software" "$@"
+    ;;
+  coder)
+    shift
+    query_agent "local-coder" "Codificador de Producción" "$@"
+    ;;
+  test)
+    shift
+    query_agent "local-testgen" "Generador de Pruebas" "$@"
+    ;;
+  validate)
+    shift
+    query_agent "local-validator" "Validador de Código y Seguridad" "$@"
+    ;;
+  complete)
+    shift
+    if [[ $# -lt 2 ]]; then
+      err "Uso: ai-agent complete <prefijo> <sufijo>"
+      exit 1
+    fi
+    local_prefix="$1"
+    local_suffix="$2"
+    check_service
+    info "Ejecutando autocompletado FIM..."
+    curl -s "${OLLAMA_URL}/api/generate" -d "$(jq -n \
+      --arg model "local-autocomplete" \
+      --arg prompt "<|fim_prefix|>${local_prefix}<|fim_suffix|>${local_suffix}<|fim_middle|>" \
+      '{model: $model, prompt: $prompt, stream: false}')" | jq -r .response
+    ;;
+  status)
+    cmd_status
+    ;;
+  benchmark)
+    cmd_benchmark
+    ;;
+  list)
+    cmd_list
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    if [[ -n "${1:-}" ]]; then
+      err "Comando desconocido: $1"
+    fi
+    usage
+    exit 1
+    ;;
+esac

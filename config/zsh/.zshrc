@@ -75,6 +75,17 @@ export CURSOR_MAX_MEMORY=4096
 
 export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
 
+# ─── Dotfiles scripts (bin/) ──────────────────────────
+# Scripts y utilidades del repositorio de dotfiles
+_DOTFILES_BIN="${DOTFILES_DIR:-$HOME/.dotfiles}/bin"
+if [[ -d "$_DOTFILES_BIN" ]]; then
+  case ":$PATH:" in
+    *":$_DOTFILES_BIN:"*) ;;  # ya en el PATH
+    *) export PATH="$_DOTFILES_BIN:$PATH" ;;
+  esac
+fi
+unset _DOTFILES_BIN
+
 
 # Added by Antigravity CLI installer
 export PATH="/home/algforge/.local/bin:$PATH"

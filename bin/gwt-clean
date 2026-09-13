@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+#
+# gwt-clean — Limpieza de Git Worktrees fusionados
+# Disponible en: /home/algforge/.dotfiles/bin/gwt-clean
+#
+# OS:           Linux, macOS (cualquier distro)
+# Dependencias: git, tmux (opcional para limpiar sesiones)
+# Uso:
+#   gwt-clean
+#   (se ejecuta desde la rama principal del repositorio)
+# Ejemplos:
+#   gwt-clean        # elimina worktrees y ramas ya fusionadas
+
+set -euo pipefail
+
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    echo "Error: Debes ejecutar esto dentro de un repositorio Git."
+    exit 1
+fi
+
+BASE_BRANCH=$(git branch --show-current)
+echo ">> Analizando worktrees y ramas en base a: $BASE_BRANCH"
+
+# Sincroniza y elimina referencias a ramas remotas que ya fueron borradas (prune)
+git fetch --all --prune
+
+# Obtiene las ramas que ya fueron fusionadas a la rama actual.
+# Excluye ramas estructurales para evitar desastres.
+MERGED_BRANCHES=$(git branch --merged "$BASE_BRANCH" | grep -vE "^\*|main|master|develop|$BASE_BRANCH" | sed 's/^[[:space:]]*//')
+
+if [ -z "$MERGED_BRANCHES" ]; then
+    echo "El entorno está limpio. No hay ramas fusionadas pendientes de purga."
+    exit 0
+fi
+
+echo "Ramas fusionadas detectadas para purga:"
+echo "$MERGED_BRANCHES"
+echo "---"
+
+for BRANCH in $MERGED_BRANCHES; do
+    # Buscar si existe un worktree activo para esta rama
+    WT_PATH=$(git worktree list | grep "\[$BRANCH\]" | awk '{print $1}' || true)
+
+    # Replicar la lógica de sanitización de nombres del script de creación
+    DIR_NAME=${BRANCH//\//-}
+    SESSION_NAME="wt-${DIR_NAME//[^a-zA-Z0-9]/-}"
+
+    if [ -n "$WT_PATH" ] && [ -d "$WT_PATH" ]; then
+        echo ">> [Worktree] Destruyendo directorio: $WT_PATH"
+        git worktree remove -f "$WT_PATH"
+    fi
+
+    echo ">> [Git] Eliminando rama local: $BRANCH"
+    git branch -d "$BRANCH" || git branch -D "$BRANCH"
+
+    # Matar la sesión de Tmux silenciosamente si sigue viva
+    if command -v tmux > /dev/null 2>&1 && tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        echo ">> [Tmux] Cerrando sesión: $SESSION_NAME"
+        tmux kill-session -t "$SESSION_NAME"
+    fi
+done
+
+echo ">> [Git] Purgando referencias internas huérfanas..."
+git worktree prune
+
+echo ">> Limpieza estructural completada."

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#
+# validate-domain — Validación completa de dominio (DNS, HTTPS, TLS, Cloudflare)
+# Disponible en: /home/algforge/.dotfiles/bin/validate-domain
+#
+# OS:           Linux, macOS (cualquier distro)
+# Dependencias: dig, curl, openssl, ping
+#   Linux:  sudo dnf install bind-utils curl openssl  |  sudo apt install dnsutils curl openssl-tool
+#   macOS:  brew install bind  (dig suele estar disponible por defecto)
+# Uso:
+#   validate-domain <dominio> [ip-esperada]
+# Ejemplos:
+#   validate-domain ejemplo.com
+#   validate-domain ejemplo.com 159.65.171.181
+#   validate-domain sub.ejemplo.com 10.0.0.1
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  cat << 'EOF'
+Validación completa de dominio: DNS, HTTPS, TLS y Cloudflare.
+
+Uso: validate-domain <dominio> [ip-esperada]
+
+Argumentos:
+  dominio      Dominio principal a validar (ej: ejemplo.com)
+  ip-esperada  IP del servidor de destino (opcional, para verificar ping)
+
+Validaciones realizadas:
+  1. Resolución DNS (registro A)
+  2. Verificación de proxy Cloudflare
+  3. Ping a IP esperada (si se proporciona)
+  4. HTTPS activo
+  5. Certificado TLS (emisor)
+  6. Redirección HTTP → HTTPS
+
+Ejemplos:
+  validate-domain ejemplo.com
+  validate-domain ejemplo.com 159.65.171.181
+EOF
+  exit 1
+fi
+
+DOMAIN="$1"
+EXPECTED_IP="${2:-}"
+CF_IP_RANGES_URL="https://www.cloudflare.com/ips-v4"
+TIMEOUT=5
+
+# Colores condicionales
+bold() { echo -e "\033[1m$1\033[0m"; }
+ok()   { echo -e "✅ $1"; }
+fail() { echo -e "❌ $1"; exit 1; }
+warn() { echo -e "⚠️  $1"; }
+
+bold "1. Resolución DNS (A) → $DOMAIN"
+ROOT_IP=$(dig +short A "$DOMAIN" | head -n1)
+
+if [[ -z "$ROOT_IP" ]]; then
+  fail "El dominio '$DOMAIN' no resuelve ningún registro A"
+fi
+ok "Resuelve a: $ROOT_IP"
+
+bold "2. Verificación Cloudflare (IP proxy)"
+if command -v curl > /dev/null 2>&1; then
+  CF_IPS=$(curl -s --max-time "$TIMEOUT" "$CF_IP_RANGES_URL" || echo "")
+  if [[ -n "$CF_IPS" ]]; then
+    # Verificación básica de rango IP Cloudflare
+    ROOT_PREFIX=$(echo "$ROOT_IP" | cut -d. -f1-2)
+    if echo "$CF_IPS" | grep -q "$ROOT_PREFIX"; then
+      ok "La IP $ROOT_IP parece ser de Cloudflare"
+    else
+      warn "La IP $ROOT_IP no coincide con rangos conocidos de Cloudflare (puede ser IPv6 o no proxied)"
+    fi
+  else
+    warn "No se pudo obtener los rangos de IP de Cloudflare"
+  fi
+fi
+
+if [[ -n "$EXPECTED_IP" ]]; then
+  bold "3. Verificación de IP del servidor ($EXPECTED_IP)"
+  if ping -c 1 -W "$TIMEOUT" "$EXPECTED_IP" > /dev/null 2>&1; then
+    ok "IP del servidor responde ping ($EXPECTED_IP)"
+  else
+    warn "La IP del servidor no responde ping ($EXPECTED_IP) — puede estar detrás de firewall"
+  fi
+fi
+
+bold "4. HTTPS activo en $DOMAIN"
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "https://$DOMAIN" || echo "000")
+if [[ "$HTTP_STATUS" =~ ^[23] ]]; then
+  ok "HTTPS activo (HTTP $HTTP_STATUS)"
+elif [[ "$HTTP_STATUS" == "000" ]]; then
+  fail "HTTPS no responde (timeout o conexión rechazada)"
+else
+  warn "HTTPS responde con HTTP $HTTP_STATUS"
+fi
+
+bold "5. Certificado TLS"
+if command -v openssl > /dev/null 2>&1; then
+  CERT_INFO=$(echo | openssl s_client -connect "$DOMAIN:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -issuer -dates 2>/dev/null || echo "")
+  if [[ -n "$CERT_INFO" ]]; then
+    CERT_ISSUER=$(echo "$CERT_INFO" | grep "^issuer" || echo "desconocido")
+    CERT_EXPIRY=$(echo "$CERT_INFO" | grep "notAfter" | cut -d= -f2 || echo "desconocido")
+    ok "Certificado válido"
+    echo "   Emisor:   $CERT_ISSUER"
+    echo "   Expira:   $CERT_EXPIRY"
+    if echo "$CERT_ISSUER" | grep -qi cloudflare; then
+      ok "Certificado emitido por Cloudflare"
+    fi
+  else
+    warn "No se pudo inspeccionar el certificado TLS"
+  fi
+fi
+
+bold "6. Redirección HTTP → HTTPS"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "http://$DOMAIN" || echo "000")
+if [[ "$HTTP_CODE" =~ ^30[12]$ ]]; then
+  ok "Redirección HTTP → HTTPS activa (HTTP $HTTP_CODE)"
+elif [[ "$HTTP_CODE" == "000" ]]; then
+  warn "HTTP no responde (puede estar bloqueado por firewall)"
+else
+  warn "No hay redirección HTTP → HTTPS (código: $HTTP_CODE)"
+fi
+
+bold "✔ VALIDACIÓN COMPLETADA para: $DOMAIN"

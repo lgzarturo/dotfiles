@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# png2webp — Convert a single PNG image to WebP format
+#
+# Usage: png2webp <image.png> [quality]
+#
+# Arguments:
+#   image.png   Input PNG file (required)
+#   quality     WebP quality 1-100 (default: 82)
+#
+# Output: Same directory as input, same name with .webp extension.
+#
+# Dependencies: ImageMagick >= 7 (magick command)
+#   Install hints:
+#     Fedora/RHEL:   sudo dnf install ImageMagick
+#     Ubuntu/Debian: sudo apt install imagemagick
+#     Arch:          sudo pacman -S imagemagick
+#     macOS:         brew install imagemagick
+#
+# Cross-distro: works wherever ImageMagick 7+ is installed.
+
+set -euo pipefail
+
+# ── Dependency check ──────────────────────────────────────────────────────────
+if ! command -v magick &>/dev/null; then
+  echo "Error: 'magick' (ImageMagick 7+) is not installed." >&2
+  echo "  Fedora/RHEL:   sudo dnf install ImageMagick" >&2
+  echo "  Ubuntu/Debian: sudo apt install imagemagick" >&2
+  echo "  Arch:          sudo pacman -S imagemagick" >&2
+  echo "  macOS:         brew install imagemagick" >&2
+  exit 1
+fi
+
+# ── Argument handling ─────────────────────────────────────────────────────────
+if [[ $# -lt 1 ]]; then
+  echo "Usage: $(basename "$0") <image.png> [quality]" >&2
+  echo "Example: $(basename "$0") photo.png 85" >&2
+  exit 1
+fi
+
+INPUT="$1"
+QUALITY="${2:-82}"
+
+if [[ ! -f "$INPUT" ]]; then
+  echo "Error: file not found: $INPUT" >&2
+  exit 1
+fi
+
+OUTPUT="${INPUT%.png}.webp"
+
+magick "$INPUT" \
+  -strip \
+  -interlace Plane \
+  -quality "$QUALITY" \
+  -define webp:method=6 \
+  -define webp:alpha-quality=85 \
+  "$OUTPUT"
+
+echo "Converted: $OUTPUT (quality=$QUALITY)"

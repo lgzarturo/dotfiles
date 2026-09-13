@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# gwt — Git worktree manager
+#
+# Creates a new git worktree for a branch, optionally copies .env,
+# and opens an isolated tmux session pointed at the new worktree.
+#
+# Usage: gwt <branch-name> [base-branch]
+# Example: gwt feature/auth develop
+#
+# Cross-distro: uses only git, realpath, and optionally tmux.
+
+set -euo pipefail
+
+if [[ "$#" -lt 1 ]]; then
+  echo "Usage: gwt <branch-name> [base-branch]"
+  echo "Example: gwt feature/auth develop"
+  exit 1
+fi
+
+BRANCH_NAME="$1"
+BASE_BRANCH="${2:-main}"
+# Replace slashes with dashes for the directory name
+DIR_NAME="${BRANCH_NAME//\//-}"
+WT_DIR="../$DIR_NAME"
+
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  echo "Error: current directory is not inside a git repository."
+  exit 1
+fi
+
+echo ">> 1. Syncing remote refs..."
+git fetch --all --prune
+
+echo ">> 2. Deploying worktree at $WT_DIR..."
+# Try to create a new branch from the base; fall back if branch already exists
+git worktree add -b "$BRANCH_NAME" "$WT_DIR" "origin/$BASE_BRANCH" 2>/dev/null || \
+  git worktree add "$WT_DIR" "$BRANCH_NAME"
+
+echo ">> 3. Provisioning environment (.env)..."
+# Copy .env from the current repo or parent directory if it exists
+if [[ -f ".env" ]]; then
+  cp .env "$WT_DIR/.env"
+elif [[ -f "../.env" ]]; then
+  cp ../.env "$WT_DIR/.env"
+fi
+
+echo ">> 4. Isolating context in Tmux..."
+# Sanitise session name for tmux (alphanumerics and dashes only)
+SESSION_NAME="wt-${DIR_NAME//[^a-zA-Z0-9]/-}"
+
+if command -v tmux &>/dev/null; then
+  # Start a detached session rooted at the new worktree
+  tmux new-session -d -s "$SESSION_NAME" -c "$(realpath "$WT_DIR")"
+  echo "Worktree ready. Attach with: tmux attach -t $SESSION_NAME"
+else
+  echo "Worktree ready at: $(realpath "$WT_DIR")"
+fi
