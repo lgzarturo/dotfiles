@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # ai-agent — CLI Controller para Agentes de IA Local (Ollama)
-# Disponible en: /home/algforge/.dotfiles/bin/ai-agent
+# Disponible en: ~/.dotfiles/bin/ai-agent
 #
 # OS:           Linux, macOS (cualquier distro)
 # Dependencias: ollama, curl, jq

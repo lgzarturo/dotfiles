@@ -128,8 +128,11 @@ if [[ "${SKIP_STARSHIP}" == "false" ]]; then
   if command -v starship &>/dev/null; then
     log_skip "Starship already installed ($(starship --version | head -1))"
   else
-    run curl -sS https://starship.rs/install.sh | sh -s -- -y
-    log_success "Starship installed"
+    if run pkg_install starship; then
+      log_success "Starship installed"
+    else
+      log_warn "Starship no disponible vía ${DOTFILES_PKG_MANAGER} — instala manualmente desde la documentación oficial"
+    fi
   fi
 
   # Create a minimal starter config if none exists

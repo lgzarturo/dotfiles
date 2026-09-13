@@ -98,8 +98,9 @@ make_fake_tool() {
 
 # Ejecuta configure_agent_aliases con PATH y HOME completamente aislados
 run_aliases() {
-  local tmp_home="$1" tmp_bin="$2" dry_run="${3:-false}"
+  local tmp_home="$1" tmp_bin="$2" dry_run="${3:-false}" enable_unsafe="${4:-false}"
   PATH="$tmp_bin:$SYSTEM_PATH" HOME="$tmp_home" DOTFILES_DRY_RUN="$dry_run" \
+    DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES="$enable_unsafe" \
     configure_agent_aliases >/dev/null 2>&1 || true
 }
 
@@ -120,18 +121,29 @@ test_dry_run_no_file() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "claude"   "$tmp_bin"
   make_fake_tool "opencode" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin" "true"
+  run_aliases "$tmp_home" "$tmp_bin" "true" "true"
 
   assert_file_not_exists \
     "dry-run no crea ~/.zshrc.local" \
     "$tmp_home/.zshrc.local"
 }
 
-# ─── Test 2: Herramienta instalada → alias en .zshrc.local ───
-test_installed_tool_gets_alias() {
+# ─── Test 2: Por defecto no crea aliases inseguros ───────────
+test_default_is_safe_no_aliases() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "claude" "$tmp_bin"
   run_aliases "$tmp_home" "$tmp_bin"
+
+   assert_file_not_exists \
+    "por defecto no crea ~/.zshrc.local con aliases inseguros" \
+    "$tmp_home/.zshrc.local"
+}
+
+# ─── Test 3: Opt-in explícito → alias en .zshrc.local ────────
+test_installed_tool_gets_alias() {
+  local tmp_home="$1" tmp_bin="$2"
+  make_fake_tool "claude" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local content
   content="$(cat "$tmp_home/.zshrc.local" 2>/dev/null || echo '')"
@@ -142,12 +154,12 @@ test_installed_tool_gets_alias() {
     "$content"
 }
 
-# ─── Test 3: Herramienta NO instalada → NO aparece alias ──
+# ─── Test 4: Herramienta NO instalada → NO aparece alias ──
 test_absent_tool_no_alias() {
   local tmp_home="$1" tmp_bin="$2"
   # Solo claude en el PATH aislado
   make_fake_tool "claude" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local content
   content="$(cat "$tmp_home/.zshrc.local" 2>/dev/null || echo '')"
@@ -163,14 +175,14 @@ test_absent_tool_no_alias() {
     "$content"
 }
 
-# ─── Test 4: Idempotencia — bloque no se duplica ──────────
+# ─── Test 5: Idempotencia — bloque no se duplica ──────────
 test_idempotent_no_duplicate() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "claude"   "$tmp_bin"
   make_fake_tool "opencode" "$tmp_bin"
 
-  run_aliases "$tmp_home" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local count
   count="$(grep -c 'DOTFILES:AGENT-ALIASES BEGIN' "$tmp_home/.zshrc.local" 2>/dev/null || echo 0)"
@@ -179,15 +191,15 @@ test_idempotent_no_duplicate() {
     "1" "$count"
 }
 
-# ─── Test 5: Idempotencia — alias count correcto ──────────
+# ─── Test 6: Idempotencia — alias count correcto ──────────
 test_idempotent_alias_count() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "claude" "$tmp_bin"
   make_fake_tool "agy"    "$tmp_bin"
 
-  run_aliases "$tmp_home" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local alias_count
   alias_count="$(grep -c '^alias ' "$tmp_home/.zshrc.local" 2>/dev/null || echo 0)"
@@ -196,24 +208,24 @@ test_idempotent_alias_count() {
     "2" "$alias_count"
 }
 
-# ─── Test 6: Sin herramientas — no se escribe archivo ─────
+# ─── Test 7: Sin herramientas — no se escribe archivo ─────
 test_no_tools_no_file() {
   local tmp_home="$1" tmp_bin="$2"
   # tmp_bin vacío: ningún tool agentico instalado
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   assert_file_not_exists \
     "sin herramientas no se crea .zshrc.local" \
     "$tmp_home/.zshrc.local"
 }
 
-# ─── Test 7: Contenido previo en .zshrc.local se preserva ─
+# ─── Test 8: Contenido previo en .zshrc.local se preserva ─
 test_existing_content_preserved() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "claude" "$tmp_bin"
 
   printf 'export MY_VAR=foo\n# comentario usuario\n' > "$tmp_home/.zshrc.local"
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local content
   content="$(cat "$tmp_home/.zshrc.local")"
@@ -224,11 +236,11 @@ test_existing_content_preserved() {
     "$content"
 }
 
-# ─── Test 8: Markers correctos en el archivo generado ─────
+# ─── Test 9: Markers correctos en el archivo generado ─────
 test_markers_present() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "codex" "$tmp_bin"
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local content
   content="$(cat "$tmp_home/.zshrc.local" 2>/dev/null || echo '')"
@@ -239,7 +251,7 @@ test_markers_present() {
     "# ─── DOTFILES:AGENT-ALIASES END ────" "$content"
 }
 
-# ─── Test 9: YOLO/autonomía en agy, cursor, cline, opencode ──
+# ─── Test 10: Opt-in habilita aliases inseguros conocidos ───
 test_yolo_agent_aliases() {
   local tmp_home="$1" tmp_bin="$2"
   make_fake_tool "agy"          "$tmp_bin"
@@ -248,7 +260,7 @@ test_yolo_agent_aliases() {
   make_fake_tool "cline"        "$tmp_bin"
   make_fake_tool "opencode"     "$tmp_bin"
 
-  run_aliases "$tmp_home" "$tmp_bin"
+  run_aliases "$tmp_home" "$tmp_bin" "false" "true"
 
   local content
   content="$(cat "$tmp_home/.zshrc.local" 2>/dev/null || echo '')"
@@ -270,15 +282,16 @@ printf '\ntests/test-agent-aliases.sh\n'
 printf '═%.0s' {1..40}
 printf '\n'
 
-run_test "Test 1: dry-run no crea archivo"          test_dry_run_no_file
-run_test "Test 2: herramienta instalada → alias"    test_installed_tool_gets_alias
-run_test "Test 3: herramienta ausente → sin alias"  test_absent_tool_no_alias
-run_test "Test 4: idempotencia (sin duplicados)"    test_idempotent_no_duplicate
-run_test "Test 5: idempotencia (alias count)"       test_idempotent_alias_count
-run_test "Test 6: sin herramientas → sin archivo"   test_no_tools_no_file
-run_test "Test 7: contenido previo preservado"      test_existing_content_preserved
-run_test "Test 8: markers BEGIN/END presentes"      test_markers_present
-run_test "Test 9: aliases YOLO para agy/cursor/cline/opencode" test_yolo_agent_aliases
+run_test "Test 1: dry-run no crea archivo"               test_dry_run_no_file
+run_test "Test 2: por defecto no crea aliases inseguros" test_default_is_safe_no_aliases
+run_test "Test 3: opt-in explícito crea alias"           test_installed_tool_gets_alias
+run_test "Test 4: herramienta ausente → sin alias"       test_absent_tool_no_alias
+run_test "Test 5: idempotencia (sin duplicados)"         test_idempotent_no_duplicate
+run_test "Test 6: idempotencia (alias count)"            test_idempotent_alias_count
+run_test "Test 7: sin herramientas → sin archivo"        test_no_tools_no_file
+run_test "Test 8: contenido previo preservado"           test_existing_content_preserved
+run_test "Test 9: markers BEGIN/END presentes"           test_markers_present
+run_test "Test 10: aliases inseguros requieren opt-in"   test_yolo_agent_aliases
 
 printf '\n═%.0s' {1..40}
 printf '\n'

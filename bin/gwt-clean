@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # gwt-clean — Limpieza de Git Worktrees fusionados
-# Disponible en: /home/algforge/.dotfiles/bin/gwt-clean
+# Disponible en: ~/.dotfiles/bin/gwt-clean
 #
 # OS:           Linux, macOS (cualquier distro)
 # Dependencias: git, tmux (opcional para limpiar sesiones)

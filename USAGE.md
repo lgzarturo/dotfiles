@@ -23,6 +23,7 @@
   - [setup/dev-setup.sh](#setupdev-setupsh)
   - [setup/git-tools.sh](#setupgit-toolssh)
   - [setup/install-fonts.sh](#setupinstall-fontssh)
+  - [maintenance/repo-security-check.sh](#maintenancerepo-security-checksh)
   - [maintenance/system-audit.sh](#maintenancesystem-auditsh)
   - [maintenance/system-optimize.sh](#maintenancesystem-optimizesh)
   - [hardware/dell-kbd-backlight.sh](#hardwaredell-kbd-backlightsh)
@@ -389,6 +390,22 @@ scripts/setup/install-fonts.sh
 ```
 
 **Compatible con:** Linux (`~/.local/share/fonts`), macOS (`~/Library/Fonts`)
+
+---
+
+### `maintenance/repo-security-check.sh`
+
+**Auditoría rápida del repositorio antes de publicarlo**
+
+Busca patrones de secretos, rutas personales hardcodeadas y combinaciones de
+descarga + ejecución remota en scripts del repositorio.
+
+```bash
+scripts/maintenance/repo-security-check.sh
+```
+
+Debe ejecutarse antes de compartir cambios sensibles o publicar nuevas
+automatizaciones de setup.
 
 ---
 
