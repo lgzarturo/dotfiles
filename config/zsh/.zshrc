@@ -88,7 +88,7 @@ unset _DOTFILES_BIN
 
 
 # Added by Antigravity CLI installer
-export PATH="/home/algforge/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 export AGY_IDE_MAX_MEMORY=4096
 
