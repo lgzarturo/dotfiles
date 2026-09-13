@@ -336,7 +336,7 @@ if [ "$COMPACT" = "false" ] && [ "$term_width" -ge 65 ]; then
   printf "${G_MID}│  ${W}0${G_HI}0${G_MID}1${G_LOW}0${G_DIM}1${G_DARK}111  ${G_MID}│   ${G_HI}%-8s${MUTED}:: %b\n" "FOLDER" "$dir_str"
   printf "${G_MID}│  ${G_DARK}0${W}1${G_HI}0${G_MID}1${G_LOW}0${G_DIM}011  ${G_MID}│   ${G_HI}%-8s${MUTED}:: %b\n" "GIT" "$git_str"
   [ -n "$load_str" ] && printf "${G_MID}│  ${G_DIM}0${G_DARK}1${W}0${G_HI}1${G_MID}1${G_LOW}001  ${G_MID}│   ${G_HI}%-8s${MUTED}:: ${G_MID}%s${R}\n" "LOAD" "$load_str"
-  printf "${G_MID}└── ${G_LOW}01010011${G_MID} ──┘   ${G_HI}%-8s${MUTED}:: ${G_HI}ONLINE ${MUTED}// ${G_MID}init ${init_time}${R}\n" "STATUS"
+  printf "${G_MID}└─ ${G_LOW}01010011${G_MID} ─┘   ${G_HI}%-8s${MUTED}:: ${G_HI}ONLINE ${MUTED}// ${G_MID}init ${init_time}${R}\n" "STATUS"
 else
   # ─── Diseño Compacto Cyber HUD (para terminales estrechas) ──
   printf "${G_MID}┌──[ ${G_HI}MATRIX // SYS HUD${G_MID} ]─────────────────────────────────────┐${R}\n"

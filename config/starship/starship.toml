@@ -1,35 +1,150 @@
-# ─── Starship config — dotfiles ────
-# Preset gruvbox-rainbow como base, ajustado
+# ╔══════════════════════════════════════════════════════╗
+# ║   Starship Prompt — Matrix + Synthwave Theme         ║
+# ╚══════════════════════════════════════════════════════╝
 
-[character]
-success_symbol = "[➜](bold green)"
-error_symbol = "[✗](bold red)"
+format = """
+[╔](bold green)\
+$os\
+$username\
+$hostname\
+[─](bold green)\
+$directory\
+[─](bold green)\
+$git_branch\
+$git_status\
+$git_metrics\
+$fill\
+$all\
+[╗](bold green)
+[╚](bold green)$character"""
 
+# Paleta de colores Matrix + Synthwave
+palette = "matrix_synthwave"
+
+[palettes.matrix_synthwave]
+matrix_green  = "#00FF41"
+matrix_dim    = "#00CC33"
+matrix_dark   = "#005511"
+synthwave_cyan = "#00FFFF"
+synthwave_magenta = "#FF00FF"
+synthwave_orange  = "#FF9900"
+dark_bg       = "#050905"
+text_light    = "#AAFFB0"
+
+# ── OS ────────────────────────────────────────────────────────────────────
+[os]
+disabled = false
+style = "bold fg:matrix_green"
+
+[os.symbols]
+Linux   = "󰌽 "
+Fedora  = "󰣛 "
+Windows = "󰍲 "
+
+# ── Usuario ───────────────────────────────────────────────────────────────
+[username]
+show_always = true
+style_user  = "bold fg:synthwave_cyan"
+style_root  = "bold fg:synthwave_magenta"
+format      = "[$user]($style)"
+
+# ── Hostname ──────────────────────────────────────────────────────────────
+[hostname]
+ssh_only  = false
+style     = "bold fg:matrix_dim"
+format    = "[@$hostname]($style) "
+
+# ── Directorio ────────────────────────────────────────────────────────────
 [directory]
-style = "blue"
-truncation_length = 3
-truncation_symbol = "…/"
+style             = "bold fg:matrix_green"
+read_only         = " 󰌾"
+read_only_style   = "bold fg:synthwave_magenta"
+truncation_length = 4
+truncate_to_repo  = true
+format            = "[ $path]($style)[$read_only]($read_only_style)"
+substitutions     = { "~/Documents" = "󰈙", "~/Downloads" = "", "~/Music" = "󰎄", "~/Pictures" = "󰉏" }
 
+# ── Git ───────────────────────────────────────────────────────────────────
 [git_branch]
 symbol = " "
-style = "bold purple"
+style  = "bold fg:synthwave_cyan"
+format = "[ $symbol$branch]($style)"
+
+[git_status]
+style        = "bold fg:synthwave_orange"
+format       = "([$all_status$ahead_behind]($style) )"
+conflicted   = "⚡"
+ahead        = "⇡${count}"
+behind       = "⇣${count}"
+diverged     = "⇕⇡${ahead_count}⇣${behind_count}"
+up_to_date   = "✓"
+untracked    = "?"
+stashed      = "󰏗"
+modified     = "!"
+staged       = "+"
+renamed      = "»"
+deleted      = "✘"
+
+[git_metrics]
+added_style   = "bold fg:matrix_green"
+deleted_style = "bold fg:synthwave_magenta"
+disabled      = false
+
+# ── Fill (separa izquierda de derecha) ───────────────────────────────────
+[fill]
+symbol = "─"
+style  = "fg:matrix_dark"
+
+# ── Lenguajes ─────────────────────────────────────────────────────────────
+[python]
+symbol = " "
+style  = "bold fg:synthwave_cyan"
+format = "[$symbol($version )]($style)"
+
+[rust]
+symbol = " "
+style  = "bold fg:synthwave_orange"
+format = "[$symbol($version )]($style)"
 
 [nodejs]
 symbol = " "
+style  = "bold fg:matrix_green"
+format = "[$symbol($version )]($style)"
 
-[python]
+[golang]
 symbol = " "
+style  = "bold fg:synthwave_cyan"
+format = "[$symbol($version )]($style)"
 
-[memory_usage]
-disabled = false
-threshold = 75
-style = "bold dimmed yellow"
+[docker_context]
+symbol = " "
+style  = "bold fg:synthwave_cyan"
+format = "[$symbol$context]($style) "
 
+# ── Tiempo de ejecución ───────────────────────────────────────────────────
 [cmd_duration]
-min_time = 2_000
-format = " took [$duration](bold yellow)"
+min_time = 2000
+style    = "bold fg:synthwave_orange"
+format   = "[ $duration]($style) "
 
+# ── Hora ──────────────────────────────────────────────────────────────────
 [time]
-disabled = false
-format = "[$time]($style) "
-style = "dimmed white"
+disabled      = false
+style         = "bold fg:matrix_dim"
+format        = "[ $time]($style)"
+time_format   = "%H:%M"
+use_12hr      = false
+
+# ── Memoria ───────────────────────────────────────────────────────────────
+[memory_usage]
+disabled    = false
+threshold   = 50
+style       = "bold fg:synthwave_orange"
+format      = "[$symbol${ram}( | ${swap})]($style) "
+symbol      = "󰍛 "
+
+# ── Prompt character ──────────────────────────────────────────────────────
+[character]
+success_symbol = "[▶](bold fg:matrix_green)"
+error_symbol   = "[▶](bold fg:synthwave_magenta)"
+vimcmd_symbol  = "[◀](bold fg:synthwave_cyan)"
