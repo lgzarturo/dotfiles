@@ -83,18 +83,13 @@ ensure_ollama() {
   case "$DOTFILES_OS" in
     linux|macos)
       if [ "$DOTFILES_DRY_RUN" = "true" ]; then
-        log_info "[dry-run] descargaría e instalaría Ollama"
+        log_info "[dry-run] instalaría Ollama vía $DOTFILES_PKG_MANAGER si está disponible"
         return 0
       fi
-      local tmp
-      tmp="$(mktemp)"
-      if curl -fsSL https://ollama.com/install.sh -o "$tmp"; then
-        sh "$tmp"
-        rm -f "$tmp"
+      if pkg_install ollama; then
         log_success "Ollama instalado"
       else
-        rm -f "$tmp"
-        log_warn "falló descarga de Ollama"
+        log_warn "Ollama no disponible vía $DOTFILES_PKG_MANAGER — instala manualmente desde la documentación oficial"
         return 1
       fi
       ;;
@@ -138,6 +133,12 @@ EOF
 # Solo configura el alias si la herramienta está instalada en PATH.
 configure_agent_aliases() {
   log_section "Agent aliases (claude, agy, cline, cursor, opencode, codex)"
+
+  if [ "${DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES:-false}" != "true" ]; then
+    log_info "aliases inseguros deshabilitados por defecto"
+    log_hint "exporta DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true solo si realmente quieres habilitarlos"
+    return 0
+  fi
 
   local zshrc_local="$HOME/.zshrc.local"
   local marker_begin="# ─── DOTFILES:AGENT-ALIASES BEGIN ──"

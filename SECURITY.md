@@ -4,198 +4,93 @@
 
 Only the latest stable release receives security fixes.
 
-| Version | Supported | Notes                                                   |
-| ------- | --------- | ------------------------------------------------------- |
-| v1.1.0  | ✅ Yes    | Fixes all known installation issues on Windows & Ubuntu |
-| < v1.0  | ❌ No     | Deprecated — upgrade to v1.1.0                          |
+| Version | Supported |
+| ------- | --------- |
+| latest  | ✅ Yes    |
+| older   | ❌ No     |
 
 ## Reporting a Vulnerability
 
 If you discover a security issue, open a **private** GitHub Security Advisory
 (repo → Security → Advisories → New draft advisory) instead of a public issue.
-We aim to respond within 5 business days.
 
----
+## Current Security Posture
 
-## Security Review — v1.1.0
+This repository is intended to be safe to publish publicly:
 
-### Scope
+- No embedded API keys, tokens, or private keys are intentionally stored in the tracked files.
+- Setup flows no longer download and execute remote installer scripts automatically.
+- Unsafe agent aliases are **disabled by default** and require explicit opt-in.
+- Shared Git config uses placeholders instead of personal identity data.
 
-This audit covers `setup.sh`, `setup.ps1`, and all libraries under `lib/`. The
-scripts install developer tooling and apply system optimizations; they do
-**not** handle credentials, tokens, or network services.
+## What Is Enforced
 
----
+### 1. No automatic remote installer execution
 
-### Findings Summary
+The setup scripts prefer trusted package managers (`apt`, `dnf`, `pacman`,
+`brew`, `winget`). If a tool is not available from the configured package
+manager, the scripts now stop at a warning and require a manual installation
+from the project's official documentation.
 
-| Category                       | Status  | Detail                                                                           |
-| ------------------------------ | ------- | -------------------------------------------------------------------------------- |
-| Remote code execution          | ✅ Safe | No `curl … \| sh` patterns — all downloads use `mktemp` first                    |
-| Privilege escalation (Linux)   | ✅ Safe | All `sudo` calls go through `sudo_run()` wrapper; skips sudo if already root     |
-| Privilege escalation (Windows) | ✅ Safe | Admin operations gated behind `Test-IsAdmin` checks                              |
-| Arbitrary code injection       | ✅ Safe | No `eval`, no dynamic variable expansion in sensitive paths                      |
-| Credential exposure            | ✅ Safe | No secrets, tokens, or API keys in code or config templates                      |
-| Supply-chain risk              | ⚠️ Low  | Third-party installers fetched over HTTPS from official sources only (see below) |
-| Idempotence / data safety      | ✅ Safe | Pre-existing files backed up before any symlink or overwrite                     |
+This applies to the previously risky install paths for:
 
----
+- Starship
+- Zap
+- mise
+- uv
+- Ollama
+- lazygit release tarballs
 
-### Secure Download Pattern
+### 2. Unsafe agent aliases require opt-in
 
-Every external installer is downloaded to a temporary file **before** being
-executed. The pipe-to-shell anti-pattern (`curl … | sh`) is **not used**
-anywhere in the codebase.
+Permission-bypassing aliases such as `--allow-dangerously-skip-permissions`,
+`--dangerously-skip-permissions`, `--auto`, `--yolo`, or
+`--dangerously-bypass-approvals-and-sandbox` are not written by default.
 
-```sh
-# setup.sh — pattern used for ALL external installers
-tmp="$(mktemp)"
-if curl -fsSL https://example.com/install.sh -o "$tmp"; then
-  sh "$tmp" --yes
-  rm -f "$tmp"
-else
-  rm -f "$tmp"
-  log_warn "download failed — skipping"
-fi
+They are only configured when explicitly requested:
+
+- Linux / macOS / WSL: `DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true` or `./setup.sh --enable-unsafe-agent-aliases`
+- Windows: `.\setup.ps1 -EnableUnsafeAgentAliases`
+
+### 3. Public templates avoid personal paths and identity data
+
+- Shared templates use placeholders for Git identity.
+- Personal absolute paths such as `/home/<user>/.dotfiles/...` are not kept in tracked scripts.
+- System paths like `/etc/...` and `/usr/...` may still appear where they are required for system provisioning.
+
+## Residual Risks
+
+This repository still performs privileged system configuration and package
+installation. That means some trust remains in:
+
+- the operating system package manager,
+- configured package repositories,
+- binaries already present on the local `PATH`.
+
+The shell profiles also execute initialization output from locally installed
+tools such as `starship` or `mise`. That is expected behavior, but it means the
+security of those commands depends on the integrity of the locally installed
+binary.
+
+## Repeatable Security Checks
+
+Run the repository audit before publishing changes:
+
+```bash
+./scripts/maintenance/repo-security-check.sh
 ```
 
-The same pattern applies to `lib/agent-tools.sh` (Ollama) and all runtime
-installers (Starship, Zap, mise, uv).
+The audit checks for:
 
----
+- hardcoded secrets and credential patterns,
+- personal absolute paths,
+- remote-download-and-execute patterns in tracked scripts.
 
-### Privilege Escalation — Linux / macOS
+## Manual Review Guidance
 
-`sudo` is never called directly in the scripts. All privileged operations go
-through the `sudo_run()` helper defined in `lib/logger.sh`:
+Before merging or publishing:
 
-```sh
-sudo_run() {
-  if [ "$(id -u)" -eq 0 ]; then
-    "$@"          # already root — no sudo needed
-  else
-    sudo "$@"
-  fi
-}
-```
-
-`sudo` is only used for system-level writes: kernel parameters (`sysctl`), udev
-rules, fstab tweaks, and ZRAM configuration. User-space tooling is installed
-without elevated privileges.
-
----
-
-### Privilege Escalation — Windows
-
-Operations that require administrator rights (e.g., `netsh`, `fsutil`,
-performance registry keys) are wrapped in explicit admin checks:
-
-```powershell
-if (Test-IsAdmin) {
-    # privileged operation
-}
-```
-
-The script **never** attempts to self-elevate. If admin rights are absent, the
-privileged step is skipped and logged as a warning; installation continues
-safely.
-
----
-
-### External Sources
-
-All third-party content is fetched exclusively over HTTPS from the official
-distribution channel of each project:
-
-| Tool        | Source URL                                           |
-| ----------- | ---------------------------------------------------- |
-| Starship    | `https://starship.rs/install.sh`                     |
-| Zap (zsh)   | `https://raw.githubusercontent.com/zap-zsh/zap/…`    |
-| Ollama      | `https://ollama.com/install.sh`                      |
-| mise        | `https://mise.run`                                   |
-| uv          | `https://astral.sh/uv/install.sh`                    |
-| Nerd Fonts  | `https://github.com/ryanoasis/nerd-fonts/releases/…` |
-| winget pkgs | `https://winget.run` (Microsoft-managed source)      |
-
-No custom or third-party package mirrors are used.
-
----
-
-### Idempotence and Backup Policy
-
-The scripts are designed to be run multiple times without destructive side
-effects. Before overwriting any existing configuration file, the original is
-backed up using the following conventions:
-
-#### Linux / macOS (`setup.sh`)
-
-User-space config files are backed up **in-place** alongside the original:
-
-```
-~/.zshrc  →  ~/.zshrc.dotfiles-backup
-```
-
-System files modified by tuning steps are backed up with a datestamp:
-
-```
-/etc/fstab  →  /etc/fstab.dotfiles-backup-YYYYMMDD
-```
-
-The full backup root can be overridden with:
-
-```sh
-DOTFILES_BACKUP_DIR=~/my-backup ./setup.sh
-```
-
-Default location: `~/.dotfiles-backup/YYYYMMDD-HHmmss/`
-
-#### Windows (`setup.ps1`)
-
-Config files (e.g., PowerShell profile) are backed up in-place:
-
-```
-$PROFILE  →  $PROFILE.dotfiles-backup
-```
-
-Dotfiles symlink targets are backed up beside their destination:
-
-```
-~\AppData\Roaming\…\file  →  …\file.dotfiles-backup
-```
-
-Default backup root: `%USERPROFILE%\dotfiles-backup\YYYYMMDD-HHmmss\` Override
-with the `-BackupDir` parameter.
-
----
-
-### Dry-Run Mode
-
-Both entry points support a non-destructive preview mode that makes **no
-changes** to the system:
-
-```sh
-./setup.sh --dry-run        # Linux / macOS / WSL
-.\setup.ps1 -DryRun         # Windows
-```
-
-In dry-run mode all `sudo_run` calls, symlink operations, package installs, and
-system writes are replaced with informational log messages.
-
----
-
-### No `eval`, No Dynamic Execution
-
-A full-codebase search confirms **zero** uses of `eval` or equivalent dynamic
-code execution constructs (`Invoke-Expression`, `` ` ``-quoting for
-side-effects) in the production scripts. All command arguments are passed as
-discrete tokens, preventing shell injection via crafted input.
-
----
-
-## Conclusion
-
-The v1.1.0 release of this dotfiles project is considered **safe for public
-distribution**. The codebase follows established shell security practices: safe
-downloads via temporary files, explicit privilege gating, no dynamic code
-evaluation, no embedded secrets, and non-destructive idempotent behavior with
-automatic backups.
+1. Run `./scripts/maintenance/repo-security-check.sh`
+2. Review changes to `setup.sh`, `setup.ps1`, `lib/`, and `scripts/setup/`
+3. Confirm no new remote installer execution was introduced
+4. Confirm no personal identity data or secrets were added

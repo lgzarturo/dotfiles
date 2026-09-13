@@ -65,8 +65,14 @@ else
     apt)
       # Official DEB repository
       run sudo_run mkdir -p /etc/apt/keyrings
-      run curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | sudo_run dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+      GITHUB_CLI_KEYRING_TMP="$(mktemp)"
+      run curl -fsSL -o "${GITHUB_CLI_KEYRING_TMP}" https://cli.github.com/packages/githubcli-archive-keyring.gpg
+      if [[ ! -s "${GITHUB_CLI_KEYRING_TMP}" ]]; then
+        rm -f "${GITHUB_CLI_KEYRING_TMP}"
+        log_fatal "keyring de GitHub CLI vacío o no descargado"
+      fi
+      run sudo_run install -m 0644 "${GITHUB_CLI_KEYRING_TMP}" /usr/share/keyrings/githubcli-archive-keyring.gpg
+      rm -f "${GITHUB_CLI_KEYRING_TMP}"
       run sudo_run chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
         | sudo_run tee /etc/apt/sources.list.d/github-cli.list > /dev/null
@@ -103,16 +109,11 @@ else
       run pkg_install lazygit
       ;;
     apt)
-      # Install via pre-built binary from GitHub releases (no official deb repo)
-      LAZYGIT_VERSION="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest \
-        | grep '"tag_name"' | cut -d '"' -f 4 | tr -d 'v')"
-      LAZYGIT_TMP="$(mktemp -d)"
-      trap 'rm -rf "${LAZYGIT_TMP}"' EXIT
-      run curl -fsSL \
-        "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz" \
-        -o "${LAZYGIT_TMP}/lazygit.tar.gz"
-      run tar -xf "${LAZYGIT_TMP}/lazygit.tar.gz" -C "${LAZYGIT_TMP}"
-      run sudo_run install -m 0755 "${LAZYGIT_TMP}/lazygit" /usr/local/bin/lazygit
+      if pkg_install lazygit; then
+        :
+      else
+        log_warn "lazygit no disponible vía APT — instala manualmente desde una fuente verificada"
+      fi
       ;;
     pacman)
       # Available in the community/extra repository

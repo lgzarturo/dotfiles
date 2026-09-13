@@ -52,8 +52,8 @@ chmod +x setup.sh
 ## macOS (Apple Silicon M2/M4 o Intel)
 
 ```bash
-# Pre-requisitos: Homebrew
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Pre-requisitos: instala Homebrew manualmente desde https://brew.sh/
+# y verifica que `brew` quede disponible en PATH antes de continuar
 
 git clone https://github.com/lgzarturo/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles

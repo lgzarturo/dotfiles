@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # gen-apikey — Generador seguro y rápido de API Keys y Secretos
-# Disponible en: /home/algforge/.dotfiles/bin/gen-apikey
+# Disponible en: ~/.dotfiles/bin/gen-apikey
 #
 # OS:           Linux, macOS (cualquier distro)
 # Dependencias: /dev/urandom (estándar en Linux/macOS) o openssl

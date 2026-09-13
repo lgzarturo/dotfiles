@@ -15,7 +15,8 @@ y optimizaciones específicas para SSD, RAM, CPU y red.
   opcional
 - 🔁 **Idempotente**: se puede correr múltiples veces sin romper nada
 - 🧱 **Modular**: cada paso puede saltarse con `--skip` o `--only`
-- 🛡️ **Seguro**: dry-run disponible, backups automáticos de configs previas
+- 🛡️ **Seguro**: dry-run disponible, backups automáticos y sin ejecutar
+  instaladores remotos no verificados
 
 ## 📁 Estructura
 
@@ -99,6 +100,7 @@ cd $HOME\dotfiles
 | `DOTFILES_SKIP`     | Coma-separado de pasos a saltar       | (vacío)     |
 | `DOTFILES_ONLY`     | Solo correr estos pasos               | (vacío)     |
 | `ANTHROPIC_API_KEY` | API key de Claude                     | (vacío)     |
+| `DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES` | Habilita aliases inseguros de forma explícita | `false` |
 | `DOTFILES_DRY_RUN`  | Solo simular                          | `false`     |
 
 ## 📋 Lista de pasos (orden de ejecución)
@@ -113,7 +115,7 @@ cd $HOME\dotfiles
 8. `dev-tools` — rg, fd, bat, eza, fzf, lazygit, etc.
 9. `runtimes` — mise/uv/node/python
 10. `agent-tools` — Claude Code, Ollama (opcional)
-11. `agent-aliases` — Aliases de herramientas agenticas con flags de permisividad
+11. `agent-aliases` — Aliases inseguros solo por opt-in explícito
 12. `matrix-fetch` — Fastfetch ultrarrápido (<15ms) estilo Matrix para inicio de terminal
 13. `gnome` / `macos` / `windows` — Tweaks del SO
 14. `sysctl` — Tuning de kernel
@@ -126,7 +128,8 @@ cd $HOME\dotfiles
 ## 🤖 Aliases de herramientas agenticas
 
 El paso `agent-aliases` detecta qué herramientas están instaladas y configura
-automáticamente aliases con sus flags de permisividad:
+aliases inseguros **solo** cuando el usuario los habilita explícitamente con
+`DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true` o `--enable-unsafe-agent-aliases`:
 
 | Herramienta | Alias configurado |
 | ----------- | ----------------- |
@@ -138,18 +141,21 @@ automáticamente aliases con sus flags de permisividad:
 - **Linux / macOS / WSL**: aliases escritos en `~/.zshrc.local` (cargado por `.zshrc`)
 - **Windows**: funciones wrapper escritas en `profile.local.ps1` junto a `$PROFILE`
 - **Idempotente**: re-ejecutar el paso no duplica entradas (usa bloques centinela)
+- **Seguro por defecto**: si no activas el opt-in, no se escribe ningún alias inseguro
 - **Solo herramientas presentes**: si una herramienta no está en PATH, su alias no se configura
 
 ### Ejecutar solo este paso
 
 ```bash
 # Linux / macOS / WSL
+DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true ./setup.sh --only agent-aliases
 ./setup.sh --only agent-aliases
 ./setup.sh --only agent-aliases --dry-run   # preview sin modificar nada
 ```
 
 ```powershell
 # Windows
+.\setup.ps1 -Only agent-aliases -EnableUnsafeAgentAliases
 .\setup.ps1 -Only agent-aliases
 .\setup.ps1 -Only agent-aliases -DryRun     # preview sin modificar nada
 ```
@@ -183,9 +189,13 @@ matrix-fetch --no-color   # sin secuencias de escape ANSI
 
 ```bash
 ./scripts/verify.sh
+./scripts/maintenance/repo-security-check.sh
 ```
 
-Verifica que cada componente quedó instalado y configurado correctamente.
+- `./scripts/verify.sh` verifica el entorno instalado.
+- `./scripts/maintenance/repo-security-check.sh` audita el repositorio en busca
+  de secretos, rutas personales hardcodeadas y patrones inseguros de descarga +
+  ejecución remota.
 
 ## 📚 Documentación extendida
 

@@ -13,9 +13,9 @@ All notable changes to this project will be documented in this file.
   - Incluye alias `fetch` para ejecución manual rápida y soporte para `--compact`, `--short`, y `--no-color`.
 - **`tests/test-matrix-fetch.sh`**: suite de tests funcionales (9 casos, 24 aserciones) que cubren dry-run, idempotencia, preservación de contenido previo, enlaces simbólicos, métricas y detección de git.
 - **`agent-aliases` step** in `setup.sh` and `setup.ps1`: detects installed agentic CLI tools (`claude`, `agy`, `opencode`, `codex`) and configures permission-flag aliases only for those present in PATH.
-  - **Linux / macOS / WSL**: aliases written to `~/.zshrc.local` (already sourced by `.zshrc`) using `BEGIN/END` sentinel blocks for idempotency.
-  - **Windows**: function wrappers written to `profile.local.ps1` in the `$PROFILE` directory (already sourced by the PowerShell profile). Uses `Get-Command -CommandType Application` to avoid infinite recursion.
-  - Aliases: `claude --allow-dangerously-skip-permissions`, `agy --dangerously-skip-permissions`, `opencode --auto`, `codex --dangerously-bypass-approvals-and-sandbox`.
+  - **Linux / macOS / WSL**: aliases are written to `~/.zshrc.local` only when `DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true` or `--enable-unsafe-agent-aliases` is used.
+  - **Windows**: function wrappers are written to `profile.local.ps1` only when `-EnableUnsafeAgentAliases` is provided. Uses `Get-Command -CommandType Application` to avoid infinite recursion.
+  - By default the step is safe and does not create permission-bypassing aliases.
   - Supports `--only agent-aliases` / `-Only agent-aliases` to run standalone without executing the full setup.
   - Supports `--dry-run` / `-DryRun`: prints what would be configured without modifying any file.
   - Fully idempotent: re-running N times results in exactly one alias block per file.
@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
 - **`lib/agent-tools.sh` — npm y node desactualizados al instalar Agent Tools**: se añade `_update_node_npm()` que ejecuta `npm install -g npm@latest` (best-effort) y `mise upgrade node` antes de instalar paquetes globales. Además, `ensure_claude_code` ahora actualiza Claude Code cuando ya está instalado en lugar de retornar sin hacer nada.
 - **`setup.sh` — `Unknown option: -s` al instalar Starship**: la llamada era `sh "$tmp" -s -- -y`; el instalador de Starship recibía `-s` como opción desconocida y abortaba. Corregido a `sh "$tmp" --yes` (flag documentado: `-y`/`--yes`).
 - **`setup.sh` — argumentos inválidos al instalar Zap**: la llamada era `zsh "$tmp" "" --silent`; `--silent` no existe en el instalador de Zap y `""` es un argumento vacío inesperado. Corregido a `zsh "$tmp" --branch release-v1 --keep-zshrc` para instalar la rama estable y preservar el `.zshrc` ya enlazado por dotfiles.
+- **Security hardening**: se elimina la ejecución automática de instaladores remotos no verificados en `setup.sh`, `lib/agent-tools.sh`, `scripts/setup/bootstrap.sh`, `scripts/setup/dev-setup.sh` y `setup.ps1`. Las instalaciones ahora priorizan gestores de paquetes y, si no hay paquete confiable disponible, emiten una instrucción manual en vez de ejecutar código remoto.
+- **`scripts/setup/git-tools.sh`**: se elimina la instalación de `lazygit` desde `latest` sin checksum y se endurece la escritura del keyring de GitHub CLI usando un archivo temporal verificado antes de copiarlo a una ruta privilegiada.
+- **Portabilidad y privacidad**: se reemplazan rutas personales hardcodeadas por rutas portables y `config/git/.gitconfig` vuelve a placeholders neutrales para `user.name` y `user.email`.
+- **`SECURITY.md` y documentación**: se actualizan para reflejar la política real de seguridad y se añade una comprobación repetible del repositorio para secretos, rutas personales y patrones de ejecución remota.
 - **`setup.sh` — `E: Unable to locate package xz` en Ubuntu/Debian**: el nombre correcto del paquete en sistemas APT es `xz-utils`, no `xz`. Corregido en la lista de core packages del bloque `linux)` (el bloque `fedora|rhel|...` ya usaba el nombre correcto para RPM).
 - **`setup.sh` — `$'\r': command not found` en WSL**: cuando el repo se clona en Windows con `core.autocrlf=true`, los scripts `lib/*.sh` quedan con CRLF en disco y bash falla al cargarlos vía `/mnt/c/...`. Se añade un bucle `sed -i 's/\r$//'` en `setup.sh` antes de cualquier `source`, normalizando todos los scripts de lib en tiempo de ejecución como red de seguridad.
 - **`setup.ps1` — winget false-negative WARNs**: packages already installed and up to date were incorrectly logged as failures. Fixed by detecting "ya instalado / ninguna actualización" in winget output.

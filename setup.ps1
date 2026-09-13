@@ -11,6 +11,7 @@ param(
     [string[]]$Skip = @(),
     [string[]]$Only = @(),
     [switch]$InstallOllama,
+    [switch]$EnableUnsafeAgentAliases,
     [string]$LogFile = "$HOME\dotfiles-install.log",
     [string]$BackupDir = "$HOME\dotfiles-backup\$((Get-Date -Format 'yyyyMMdd-HHmmss'))"
 )
@@ -66,6 +67,7 @@ $Script:Profile = $Profile
 $Script:SkipSteps = $Skip
 $Script:OnlySteps = $Only
 $Script:InstallOllama = [bool]$InstallOllama
+$Script:EnableUnsafeAgentAliases = [bool]$EnableUnsafeAgentAliases
 
 if ($Profile -eq "auto") {
     $Script:Profile = if ($hw.IsLaptop) { "laptop" } elseif ($hw.RamGB -ge 64) { "workstation" } else { "desktop" }
@@ -397,7 +399,7 @@ if (-not (Test-StepSkipped "dev-tools")) {
         }
         else {
             Log-Warn "scoop no detectado — algunas herramientas no se instalarán"
-            Log-Hint "instala scoop: irm get.scoop.sh | iex"
+            Log-Hint "instala scoop manualmente desde https://scoop.sh/ si realmente lo necesitas"
         }
     }
 }
@@ -408,19 +410,10 @@ if (-not (Test-StepSkipped "runtimes")) {
         if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
             Install-WingetPackage "OpenJS.NodeJS.LTS"
         }
-        if (-not (Get-Command uv -ErrorAction SilentlyContinue) -and -not $DryRun) {
-            Log-Info "instalando uv"
-            $uvTmp = Join-Path $env:TEMP "uv-install.ps1"
-            try {
-                Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -OutFile $uvTmp -UseBasicParsing
-                & $uvTmp
-            }
-            catch {
-                Log-Warn "falló descarga de uv"
-                Log-Hint "instala manualmente: https://docs.astral.sh/uv/getting-started/installation/"
-            }
-            finally {
-                Remove-Item $uvTmp -ErrorAction SilentlyContinue
+        if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+            if (-not (Install-WingetPackage "astral-sh.uv")) {
+                Log-Warn "uv no disponible vía winget"
+                Log-Hint "instálalo manualmente desde la documentación oficial"
             }
         }
     }
@@ -456,6 +449,12 @@ if (-not (Test-StepSkipped "agent-tools")) {
 # ── 10b. agent-aliases ──
 if (-not (Test-StepSkipped "agent-aliases")) {
     Invoke-Step -Name "agent-aliases" -Description "Agent aliases (claude, agy, opencode, codex)" -Action {
+        if (-not $Script:EnableUnsafeAgentAliases) {
+            Log-Info "aliases inseguros deshabilitados por defecto"
+            Log-Hint "usa -EnableUnsafeAgentAliases solo si realmente quieres habilitarlos"
+            return
+        }
+
         $profileDir   = Split-Path $PROFILE -Parent
         $profileLocal = Join-Path $profileDir "profile.local.ps1"
         $markerBegin  = "# ─── DOTFILES:AGENT-ALIASES BEGIN ──"

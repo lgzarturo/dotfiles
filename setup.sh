@@ -19,6 +19,7 @@ DOTFILES_PROFILE="${DOTFILES_PROFILE:-auto}"
 DOTFILES_SKIP="${DOTFILES_SKIP:-}"
 DOTFILES_ONLY="${DOTFILES_ONLY:-}"
 DOTFILES_INSTALL_OLLAMA="${DOTFILES_INSTALL_OLLAMA:-false}"
+DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES="${DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES:-false}"
 DOTFILES_BACKUP_DIR="${DOTFILES_BACKUP_DIR:-$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)}"
 
 # ─── Normaliza line endings (CRLF → LF) ────────────────────
@@ -82,6 +83,7 @@ Opciones:
   --skip STEP,...     Pasos a saltar (ej: ssd,ram,sysctl)
   --only STEP,...     Solo corre estos pasos
   --install-ollama    Incluye Ollama (LLM local)
+  --enable-unsafe-agent-aliases  Habilita aliases inseguros de herramientas agenticas
   --log-level LVL     TRACE | DEBUG | INFO | WARN | ERROR
   --log-file PATH     Archivo de log
   --backup-dir PATH   Directorio de backup
@@ -95,6 +97,7 @@ Pasos disponibles (en orden):
 Variables de entorno equivalentes:
   DOTFILES_DRY_RUN, DOTFILES_ASSUME_YES, DOTFILES_PROFILE,
   DOTFILES_SKIP, DOTFILES_ONLY, DOTFILES_INSTALL_OLLAMA,
+  DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES,
   DOTFILES_LOG_LEVEL, DOTFILES_LOG_FILE, DOTFILES_BACKUP_DIR
 EOF
 }
@@ -108,6 +111,7 @@ parse_args() {
       --skip)               DOTFILES_SKIP="$2"; shift ;;
       --only)               DOTFILES_ONLY="$2"; shift ;;
       --install-ollama)     DOTFILES_INSTALL_OLLAMA=true ;;
+      --enable-unsafe-agent-aliases) DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES=true ;;
       --log-level)          DOTFILES_LOG_LEVEL="$2"; shift ;;
       --log-file)           DOTFILES_LOG_FILE="$2"; shift ;;
       --backup-dir)         DOTFILES_BACKUP_DIR="$2"; shift ;;
@@ -118,7 +122,7 @@ parse_args() {
   done
 
   export DOTFILES_DRY_RUN DOTFILES_ASSUME_YES DOTFILES_PROFILE
-  export DOTFILES_SKIP DOTFILES_ONLY DOTFILES_INSTALL_OLLAMA
+  export DOTFILES_SKIP DOTFILES_ONLY DOTFILES_INSTALL_OLLAMA DOTFILES_ENABLE_UNSAFE_AGENT_ALIASES
   export DOTFILES_LOG_LEVEL DOTFILES_LOG_FILE DOTFILES_BACKUP_DIR
 }
 
@@ -349,32 +353,18 @@ step_shell() {
   if ! command -v starship >/dev/null 2>&1; then
     log_info "instalando Starship"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      local tmp
-      tmp="$(mktemp)"
-      if curl -fsSL https://starship.rs/install.sh -o "$tmp"; then
-        sh "$tmp" --yes
-        rm -f "$tmp"
+      if pkg_install starship; then
+        log_success "Starship instalado"
       else
-        rm -f "$tmp"
-        log_warn "falló descarga de Starship"
+        log_warn "Starship no disponible vía $DOTFILES_PKG_MANAGER — instala manualmente desde la documentación oficial"
       fi
     fi
   fi
 
   # Zsh plugins via Zap
   if [ ! -d "$HOME/.local/share/zap" ]; then
-    log_info "instalando Zap (zsh plugin manager)"
-    if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      local tmp
-      tmp="$(mktemp)"
-      if curl -fsSL https://raw.githubusercontent.com/zap-zsh/zap/main/install.sh -o "$tmp"; then
-        zsh "$tmp" --branch release-v1 --keep-zshrc
-        rm -f "$tmp"
-      else
-        rm -f "$tmp"
-        log_warn "falló descarga de Zap"
-      fi
-    fi
+    log_warn "Zap no se instala automáticamente por seguridad"
+    log_hint "instálalo manualmente si quieres habilitar los plugins de zsh incluidos"
   fi
 
   # Linkear .zshrc
@@ -522,14 +512,10 @@ step_runtimes() {
   if ! command -v mise >/dev/null 2>&1; then
     log_info "instalando mise"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      local tmp
-      tmp="$(mktemp)"
-      if curl -fsSL https://mise.run -o "$tmp"; then
-        sh "$tmp"
-        rm -f "$tmp"
+      if pkg_install mise; then
+        log_success "mise instalado"
       else
-        rm -f "$tmp"
-        log_warn "falló descarga de mise"
+        log_warn "mise no disponible vía $DOTFILES_PKG_MANAGER — instala manualmente desde la documentación oficial"
       fi
     fi
   fi
@@ -544,14 +530,10 @@ step_runtimes() {
   if ! command -v uv >/dev/null 2>&1; then
     log_info "instalando uv"
     if [ "$DOTFILES_DRY_RUN" != "true" ]; then
-      local tmp
-      tmp="$(mktemp)"
-      if curl -fsSL https://astral.sh/uv/install.sh -o "$tmp"; then
-        sh "$tmp"
-        rm -f "$tmp"
+      if pkg_install uv; then
+        log_success "uv instalado"
       else
-        rm -f "$tmp"
-        log_warn "falló descarga de uv"
+        log_warn "uv no disponible vía $DOTFILES_PKG_MANAGER — instala manualmente desde la documentación oficial"
       fi
     fi
   fi

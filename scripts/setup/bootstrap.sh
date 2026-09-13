@@ -53,6 +53,7 @@ if [[ "${DOTFILES_OS}" == "linux" ]] && [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 REAL_USER="${SUDO_USER:-$(whoami)}"
+REAL_HOME="$(su - "${REAL_USER}" -c 'printf "%s" "$HOME"' 2>/dev/null || printf '%s' "$HOME")"
 
 log_section "Bootstrap — ${DOTFILES_DISTRO} ${DOTFILES_DISTRO_VERSION}"
 print_environment
@@ -191,11 +192,20 @@ else
     apt)
       run sudo_run apt-get install -y ca-certificates curl gnupg lsb-release
       run sudo_run install -m 0755 -d /etc/apt/keyrings
-      run curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-        | sudo_run gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      DOCKER_GPG_TMP="$(mktemp)"
+      run curl -fsSL -o "${DOCKER_GPG_TMP}" https://download.docker.com/linux/ubuntu/gpg
+      if [[ ! -s "${DOCKER_GPG_TMP}" ]]; then
+        rm -f "${DOCKER_GPG_TMP}"
+        log_fatal "clave GPG de Docker vacía o no descargada"
+      fi
+      run sudo_run gpg --dearmor -o /etc/apt/keyrings/docker.gpg < "${DOCKER_GPG_TMP}"
+      rm -f "${DOCKER_GPG_TMP}"
       run sudo_run chmod a+r /etc/apt/keyrings/docker.gpg
       DOCKER_ARCH="$(dpkg --print-architecture)"
       DOCKER_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}")"
+      if [[ -z "${DOCKER_CODENAME}" ]]; then
+        log_fatal "no se pudo resolver el codename de la distro para Docker"
+      fi
       echo \
         "deb [arch=${DOCKER_ARCH} signed-by=/etc/apt/keyrings/docker.gpg] \
 https://download.docker.com/linux/ubuntu ${DOCKER_CODENAME} stable" \
@@ -237,15 +247,20 @@ log_section "Step 6: mise (polyglot version manager)"
 if su - "${REAL_USER}" -c 'command -v mise' &>/dev/null 2>&1; then
   log_skip "mise already installed"
 else
-  run su - "${REAL_USER}" -c 'curl https://mise.run | sh'
+  if pkg_install mise; then
+    log_success "mise installed"
+  else
+    log_warn "mise no disponible vía ${DOTFILES_PKG_MANAGER} — instala manualmente desde la documentación oficial"
+  fi
   # Activate in bash
-  BASHRC="/home/${REAL_USER}/.bashrc"
-  if [[ -f "${BASHRC}" ]] && ! grep -q 'mise activate bash' "${BASHRC}"; then
+  BASHRC="${REAL_HOME}/.bashrc"
+  if su - "${REAL_USER}" -c 'command -v mise' &>/dev/null 2>&1 \
+    && [[ -f "${BASHRC}" ]] \
+    && ! grep -q 'mise activate bash' "${BASHRC}"; then
     run su - "${REAL_USER}" -c \
       'echo "eval \"$(~/.local/bin/mise activate bash)\"" >> ~/.bashrc'
     log_success "mise activation added to .bashrc"
   fi
-  log_success "mise installed"
 fi
 
 # ── Done ─────────────────────────────────────────────────────────────────────

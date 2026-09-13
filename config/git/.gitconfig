@@ -1,6 +1,6 @@
 [user]
-	name = algforge
-	email = lgzarturo@gmail.com
+	name = Tu Nombre
+	email = tu@email.com
 
 [core]
 	editor = nvim
@@ -37,10 +37,10 @@
 	wip = commit -am "wip: $(date +%H:%M:%S)"
 [credential "https://github.com"]
 	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
