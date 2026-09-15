@@ -234,8 +234,21 @@ dir_str="${C}${pwd_pretty}${R} ${GRAY}[${G_MID}${dir_count} items${GRAY}]${ro_fl
 git_dir=""
 d="$PWD"
 while [ -n "$d" ] && [ "$d" != "/" ]; do
-  if [ -e "$d/.git" ]; then
-    git_dir="$d/.git"
+  candidate_git_dir="$d/.git"
+  if [ -d "$candidate_git_dir" ] && [ -f "$candidate_git_dir/HEAD" ]; then
+    git_dir="$candidate_git_dir"
+    break
+  elif [ -f "$candidate_git_dir" ]; then
+    # Un worktree guarda un archivo .git que apunta al gitdir real. Un
+    # directorio .git sin HEAD no es un repositorio válido (p. ej. /tmp/.git).
+    read -r git_ref < "$candidate_git_dir"
+    if [[ "$git_ref" == gitdir:\ * ]]; then
+      git_dir="${git_ref#gitdir: }"
+      [[ "$git_dir" != /* ]] && git_dir="$(dirname "$candidate_git_dir")/$git_dir"
+      [ -f "$git_dir/HEAD" ] || git_dir=""
+    fi
+  fi
+  if [ -n "$git_dir" ]; then
     break
   fi
   d="${d%/*}"
@@ -244,12 +257,6 @@ done
 git_str="${GRAY}none${R}"
 if [ -n "$git_dir" ]; then
   head_file="$git_dir/HEAD"
-  if [ -f "$git_dir" ]; then
-    # Submódulo o worktree
-    read -r git_ref < "$git_dir"
-    git_dir="${git_ref#gitdir: }"
-    head_file="$git_dir/HEAD"
-  fi
 
   git_branch=""
   if [ -f "$head_file" ]; then

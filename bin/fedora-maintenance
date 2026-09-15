@@ -1,0 +1,782 @@
+#!/usr/bin/env bash
+# fedora-maintenance — mantenimiento guiado, seguro e idempotente para Fedora.
+#
+# No usa eval. Las operaciones que cambian el sistema requieren confirmación
+# explícita (o --yes); --dry-run nunca invoca sudo ni modifica archivos.
+
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+readonly PROGRAM="${0##*/}"
+readonly SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+readonly DEFAULT_LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/fedora-maintenance.log"
+
+DRY_RUN=false
+YES=false
+VERBOSE=false
+INTERACTIVE=false
+STATUS_ONLY=false
+SHOW_LOGS=false
+INSTALL_TIMER=false
+REMOVE_TIMER=false
+RUN_UPDATE=false
+RUN_FLATPAK=false
+RUN_FIRMWARE=false
+RUN_CLEANUP=false
+OFFLINE=false
+OFFLINE_CLI=""
+NO_FIRMWARE_CLI=false
+LOG_FILE="${FM_LOG_FILE:-$DEFAULT_LOG_FILE}"
+MAINTENANCE_USER="${FM_MAINTENANCE_USER:-${SUDO_USER:-}}"
+CONFIG_PATH="${FM_CONFIG:-}"
+CONFIG_LOADED="defaults"
+DNF_CMD=""
+TOTAL_TASKS=0
+CURRENT_TASK=0
+UPDATED_RPM=0
+UPDATED_FLATPAK=0
+UPDATED_FIRMWARE=0
+PACKAGES_REMOVED=0
+CACHE_CLEANED=false
+REBOOT_REQUIRED=false
+FAILURES=0
+
+# Valores configurables. Se pueden redefinir en config/fedora-maintenance.conf,
+# /etc/fedora-maintenance.conf o ~/.config/fedora-maintenance/config.
+AUTO_REBOOT=false
+UPDATE_FLATPAK=true
+UPDATE_FIRMWARE=true
+OFFLINE_UPDATE=false
+REMOVE_ORPHANS=true
+CLEAN_CACHE=true
+LOG_RETENTION=15
+ENABLE_SNAPSHOTS=true
+SNAPSHOT_DIR="/.snapshots/fedora-maintenance"
+CHECK_INTERNET=true
+STATUS_TIMEOUT=20
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  C_RESET=$'\033[0m'; C_BOLD=$'\033[1m'; C_BLUE=$'\033[34m'
+  C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'; C_RED=$'\033[31m'
+else
+  C_RESET=""; C_BOLD=""; C_BLUE=""; C_GREEN=""; C_YELLOW=""; C_RED=""
+fi
+
+usage() {
+  cat <<EOF
+Uso: ${PROGRAM} [opciones]
+
+Mantenimiento de Fedora para paquetes RPM, Flatpaks, firmware y limpieza.
+Sin opciones abre un menú interactivo (solo en una terminal).
+
+Tareas:
+  --all                  Ejecuta las tareas habilitadas en la configuración
+  --update               Actualiza paquetes RPM con DNF/DNF5
+  --flatpak              Actualiza instalaciones Flatpak de sistema y usuario
+  --firmware             Busca e instala firmware mediante fwupdmgr
+  --no-firmware          Excluye firmware de --all
+  --cleanup              Limpia caché y dependencias RPM/Flatpak no usadas
+  --status               Muestra el estado sin cambiar nada
+  --logs                 Muestra los últimos logs del servicio systemd
+  --interactive          Fuerza el menú interactivo
+
+Seguridad y automatización:
+  --offline              Deja la actualización RPM preparada para el próximo reinicio
+                         (solo DNF5; no reinicia automáticamente)
+  --online               Fuerza actualización RPM en vivo
+  --snapshot             Fuerza snapshot Btrfs previo a RPM/firmware
+  --no-snapshot          Deshabilita el snapshot para esta ejecución
+  --auto-reboot          Reinicia al final si DNF detecta que es necesario
+  --no-reboot            Nunca reinicia automáticamente
+  -y, --yes              Confirma tareas modificadoras; necesario para timers/CI
+  --dry-run              Muestra comandos sin ejecutarlos ni solicitar sudo
+  --config RUTA          Usa un archivo de configuración específico
+  --log-file RUTA        Log adicional (por defecto: ${DEFAULT_LOG_FILE})
+  --verbose              Muestra detalles de preflight y configuración
+  --install-timer        Instala/actualiza un timer semanal conservador de systemd
+  --remove-timer         Deshabilita y elimina ese timer y servicio
+  -h, --help             Muestra esta ayuda
+
+Ejemplos:
+  ${PROGRAM} --interactive
+  ${PROGRAM} --status
+  ${PROGRAM} --update --flatpak --yes
+  ${PROGRAM} --all --dry-run
+  sudo ${PROGRAM} --install-timer
+EOF
+}
+
+log() {
+  local level="$1" color="$2"; shift 2
+  local message="$*" timestamp log_dir
+  timestamp="$(date '+%F %T')"
+  printf '%s[%s]%s %s\n' "$color" "$level" "$C_RESET" "$message" >&2
+  log_dir="$(dirname "$LOG_FILE")"
+  if mkdir -p "$log_dir" 2>/dev/null; then
+    printf '[%s] %-5s %s\n' "$timestamp" "$level" "$message" >> "$LOG_FILE" 2>/dev/null || true
+  fi
+}
+info() { log INFO "$C_BLUE" "$@"; }
+ok() { log OK "$C_GREEN" "$@"; }
+warn() { log WARN "$C_YELLOW" "$@"; }
+die() { log ERROR "$C_RED" "$@"; exit 1; }
+debug() { [[ "$VERBOSE" == true ]] && log DEBUG "$C_BLUE" "$@" || true; }
+
+print_command() {
+  local part
+  printf '  %s[dry-run]%s' "$C_BLUE" "$C_RESET" >&2
+  for part in "$@"; do printf ' %q' "$part" >&2; done
+  printf '\n' >&2
+}
+
+run_cmd() {
+  if [[ "$DRY_RUN" == true ]]; then
+    print_command "$@"
+    return 0
+  fi
+  "$@" 2>&1 | tee -a "$LOG_FILE"
+}
+
+run_root() {
+  if [[ "$DRY_RUN" == true ]]; then
+    print_command sudo "$@"
+  elif (( EUID == 0 )); then
+    run_cmd "$@"
+  else
+    run_cmd sudo "$@"
+  fi
+}
+
+run_as_invoking_user() {
+  if [[ "$DRY_RUN" == true ]]; then
+    print_command "$@"
+  elif (( EUID == 0 )) && [[ -n "$MAINTENANCE_USER" && "$MAINTENANCE_USER" != root ]]; then
+    run_cmd sudo -H -u "$MAINTENANCE_USER" "$@"
+  else
+    run_cmd "$@"
+  fi
+}
+
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+discover_config_path() {
+  local expect_path=false arg
+  for arg in "$@"; do
+    if [[ "$expect_path" == true ]]; then
+      CONFIG_PATH="$arg"
+      return 0
+    fi
+    [[ "$arg" == --config ]] && expect_path=true
+  done
+  return 0
+}
+
+load_config_file() {
+  local path="$1" line key value
+  [[ -r "$path" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [[ -z "$line" ]] && continue
+    if [[ "$line" =~ ^([A-Z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value="${value#\"}"; value="${value%\"}"
+      value="${value#\'}"; value="${value%\'}"
+      case "$key" in
+        AUTO_REBOOT|UPDATE_FLATPAK|UPDATE_FIRMWARE|OFFLINE_UPDATE|REMOVE_ORPHANS|CLEAN_CACHE|ENABLE_SNAPSHOTS|CHECK_INTERNET)
+          if [[ "$value" == true || "$value" == false ]]; then
+            declare -g "$key=$value"
+          else
+            warn "Valor booleano inválido para $key en $path; se conserva el anterior."
+          fi
+          ;;
+        LOG_RETENTION|STATUS_TIMEOUT)
+          if [[ "$value" =~ ^[0-9]+$ ]]; then
+            declare -g "$key=$value"
+          else
+            warn "Valor numérico inválido para $key en $path; se conserva el anterior."
+          fi
+          ;;
+        LOG_FILE|SNAPSHOT_DIR)
+          if [[ "$value" == /* ]]; then
+            declare -g "$key=$value"
+          else
+            warn "$key debe ser una ruta absoluta en $path; se conserva el anterior."
+          fi
+          ;;
+      esac
+    fi
+  done < "$path"
+  CONFIG_LOADED="$path"
+}
+
+init_config() {
+  local repo_config
+  repo_config="$(dirname "$SCRIPT_PATH")/../config/fedora-maintenance.conf"
+  if [[ -n "$CONFIG_PATH" ]]; then
+    [[ -r "$CONFIG_PATH" ]] || die "No se puede leer la configuración: $CONFIG_PATH"
+    load_config_file "$CONFIG_PATH"
+  else
+    load_config_file "$repo_config"
+    load_config_file /etc/fedora-maintenance.conf
+    load_config_file "$HOME/.config/fedora-maintenance/config"
+  fi
+  # La variable de entorno tiene precedencia sobre cualquier archivo.
+  [[ -n "${FM_LOG_FILE:-}" ]] && LOG_FILE="$FM_LOG_FILE"
+  OFFLINE="$OFFLINE_UPDATE"
+}
+
+validate_fedora() {
+  local os_release="${FEDORA_MAINTENANCE_OS_RELEASE:-/etc/os-release}"
+  [[ -r "$os_release" ]] || die "No se puede leer $os_release."
+  local os_id
+  os_id="$(awk -F= '$1 == "ID" { gsub(/"/, "", $2); print tolower($2); exit }' "$os_release")"
+  [[ "$os_id" == fedora ]] || die "Este comando solo es compatible con Fedora (detectado: ${os_id:-desconocido})."
+  command_exists rpm-ostree && die "Fedora Atomic usa rpm-ostree; no ejecutes DNF sobre ese sistema."
+
+  if command_exists dnf5; then
+    DNF_CMD=dnf5
+  elif command_exists dnf; then
+    DNF_CMD=dnf
+  elif [[ "$DRY_RUN" == true ]]; then
+    DNF_CMD=dnf
+    warn "DNF no está disponible; --dry-run continuará mostrando los comandos."
+  else
+    die "No se encontró dnf ni dnf5."
+  fi
+}
+
+confirm_changes() {
+  [[ "$DRY_RUN" == true || "$YES" == true ]] && return 0
+  [[ -t 0 ]] || die "Una ejecución no interactiva que modifica el sistema requiere --yes."
+  local answer
+  printf '%sSe aplicarán cambios al sistema. ¿Continuar? [y/N] %s' "$C_YELLOW" "$C_RESET" >&2
+  read -r answer
+  [[ "$answer" =~ ^([yY]|[yY][eE][sS]|[sS][iI])$ ]] || die "Operación cancelada."
+}
+
+progress() {
+  CURRENT_TASK=$((CURRENT_TASK + 1))
+  printf '\n%s[%d/%d]%s %s\n' "$C_BOLD" "$CURRENT_TASK" "$TOTAL_TASKS" "$C_RESET" "$1" >&2
+}
+
+check_battery_for_firmware() {
+  local capacity_file="${SYS_CLASS_PATH:-/sys/class}/power_supply/BAT0/capacity"
+  [[ -r "$capacity_file" ]] || return 0
+  local capacity
+  capacity="$(< "$capacity_file")"
+  [[ "$capacity" =~ ^[0-9]+$ ]] || return 0
+  (( capacity > 30 )) || die "Batería al ${capacity}%; conecta la corriente o carga más de 30% antes de actualizar firmware."
+}
+
+validate_internet() {
+  [[ "$CHECK_INTERNET" == true ]] || { debug "Preflight de red deshabilitado por configuración."; return 0; }
+  [[ "$DRY_RUN" == true ]] && { info "[dry-run] Preflight de red (máximo 8s)."; return 0; }
+  command_exists curl || die "Falta curl, necesario para comprobar conectividad."
+  info "Preflight de red (máximo 8s)…"
+  if curl --head --silent --fail --max-time 8 https://mirrors.fedoraproject.org/ >/dev/null; then
+    ok "Red disponible."
+  else
+    die "No se pudo contactar a los mirrors de Fedora; revisa red, DNS o VPN."
+  fi
+}
+
+dnf_cached_status() {
+  local rc=0 output
+  info "Consultando metadatos DNF en caché (máximo ${STATUS_TIMEOUT}s)…"
+  if command_exists timeout; then
+    output="$(timeout "${STATUS_TIMEOUT}s" "$DNF_CMD" --cacheonly check-upgrade --quiet 2>&1)" || rc=$?
+  else
+    output="$("$DNF_CMD" --cacheonly check-upgrade --quiet 2>&1)" || rc=$?
+  fi
+  debug "$output"
+  case "$rc" in
+    0) printf '  RPM: sin actualizaciones según la caché local\n'; return 1 ;;
+    100) printf '  RPM: actualizaciones disponibles según la caché local\n'; return 0 ;;
+    124) printf '  RPM: comprobación agotó el límite de %ss\n' "$STATUS_TIMEOUT"; return 2 ;;
+    130) printf '  RPM: comprobación interrumpida\n'; return 130 ;;
+    *)
+      printf '  RPM: estado no disponible (DNF devolvió %s)\n' "$rc"
+      [[ -n "$output" ]] && printf '       %s\n' "$(printf '%s' "$output" | tail -n 1)"
+      return 2
+      ;;
+  esac
+}
+
+create_pre_update_snapshot() {
+  [[ "$ENABLE_SNAPSHOTS" == true ]] || { info "Snapshot Btrfs deshabilitado."; return 0; }
+  command_exists findmnt && command_exists btrfs || { warn "Sin findmnt/btrfs; se omite el snapshot."; return 0; }
+  local root_fstype snapshot_name
+  root_fstype="${FM_ROOT_FSTYPE:-$(findmnt -n -o FSTYPE / 2>/dev/null || true)}"
+  [[ "$root_fstype" == btrfs ]] || { info "Raíz $root_fstype: no requiere snapshot Btrfs."; return 0; }
+  snapshot_name="${SNAPSHOT_DIR}/root-before-maintenance-$(date +%Y%m%d-%H%M%S)-$$"
+  info "Creando snapshot Btrfs previo: $snapshot_name"
+  if run_root mkdir -p "$SNAPSHOT_DIR" && run_root btrfs subvolume snapshot -r / "$snapshot_name"; then
+    if [[ "$DRY_RUN" == true ]]; then
+      ok "Snapshot validado en simulación."
+    else
+      ok "Snapshot creado."
+    fi
+  else
+    warn "No fue posible crear el snapshot; el mantenimiento continuará."
+  fi
+}
+
+task_update() {
+  progress "Actualización RPM (${DNF_CMD})"
+  if [[ "$OFFLINE" == true ]]; then
+    [[ "$DNF_CMD" == dnf5 ]] || die "--offline requiere DNF5."
+    info "Se preparará una transacción offline; no se reiniciará automáticamente."
+    if ! run_root "$DNF_CMD" upgrade --refresh --offline --assumeyes; then
+      warn "Falló la preparación de la actualización RPM offline."
+      return 1
+    fi
+    REBOOT_REQUIRED=true
+    info "Cuando estés listo, ejecuta: sudo dnf5 offline reboot"
+  else
+    info "DNF mostrará el progreso de repositorios y paquetes; esta operación puede tardar."
+    if ! run_root "$DNF_CMD" upgrade --refresh --assumeyes; then
+      warn "Falló la actualización RPM. Revisa el repositorio indicado en la salida."
+      return 1
+    fi
+  fi
+  UPDATED_RPM=1
+}
+
+task_flatpak() {
+  progress "Actualización Flatpak"
+  if ! command_exists flatpak; then
+    warn "Flatpak no está instalado; se omite."
+    return 0
+  fi
+  # Se ejecutan ambos ámbitos por separado para no perder los remotos del usuario
+  # cuando el comando completo se invoca con sudo.
+  local partial_failure=false
+  run_root flatpak update --system --noninteractive --assumeyes || { warn "No se actualizaron Flatpaks de sistema."; partial_failure=true; }
+  run_as_invoking_user flatpak update --user --noninteractive --assumeyes || { warn "No se actualizaron Flatpaks de usuario."; partial_failure=true; }
+  UPDATED_FLATPAK=1
+  [[ "$partial_failure" == false ]]
+}
+
+task_firmware() {
+  progress "Actualización de firmware"
+  if ! command_exists fwupdmgr; then
+    warn "fwupdmgr no está instalado; se omite firmware."
+    return 0
+  fi
+  check_battery_for_firmware
+  run_root fwupdmgr refresh --force || warn "No se pudo refrescar el catálogo LVFS; se usará la caché disponible."
+  if [[ "$DRY_RUN" != true ]]; then
+    local fwupd_output="" fwupd_rc=0
+    # fwupdmgr puede requerir autorización para enumerar dispositivos. Usar el
+    # mismo contexto privilegiado que la actualización evita un falso “sin
+    # actualizaciones” cuando el usuario ejecuta el comando sin sudo.
+    info "Consultando firmware disponible (máximo ${STATUS_TIMEOUT}s)…"
+    if (( EUID == 0 )); then
+      fwupd_output="$(timeout "${STATUS_TIMEOUT}s" fwupdmgr get-updates 2>&1)" || fwupd_rc=$?
+    else
+      fwupd_output="$(sudo timeout "${STATUS_TIMEOUT}s" fwupdmgr get-updates 2>&1)" || fwupd_rc=$?
+    fi
+    debug "$fwupd_output"
+    if (( fwupd_rc == 124 )); then
+      warn "La comprobación de firmware agotó el límite de ${STATUS_TIMEOUT}s."
+      return 1
+    elif (( fwupd_rc == 2 )); then
+      ok "No hay actualizaciones de firmware disponibles."
+      return 0
+    elif (( fwupd_rc != 0 )); then
+      if [[ "$fwupd_output" =~ [Nn]o[[:space:]](upgrades|updates|devices) ]]; then
+        ok "No hay actualizaciones de firmware disponibles."
+        return 0
+      fi
+      warn "No se pudo comprobar firmware (código $fwupd_rc)."
+      [[ -n "$fwupd_output" ]] && warn "$(printf '%s' "$fwupd_output" | tail -n 1)"
+      return 1
+    fi
+  fi
+  if ! run_root fwupdmgr update --assume-yes; then
+    warn "Falló la actualización de firmware."
+    return 1
+  fi
+  UPDATED_FIRMWARE=1
+  REBOOT_REQUIRED=true
+  warn "El firmware puede requerir un reinicio; revisa la salida de fwupdmgr."
+}
+
+clean_old_logs() {
+  local log_dir base_log
+  log_dir="$(dirname "$LOG_FILE")"
+  base_log="$(basename "$LOG_FILE")"
+  [[ -d "$log_dir" && "$LOG_RETENTION" =~ ^[0-9]+$ ]] || return 0
+  info "Eliminando logs rotados ${base_log}.* con más de ${LOG_RETENTION} días."
+  if [[ "$DRY_RUN" == true ]]; then
+    print_command find "$log_dir" -maxdepth 1 -type f -name "${base_log}.*" -mtime "+${LOG_RETENTION}" -delete
+  elif [[ -w "$log_dir" ]]; then
+    find "$log_dir" -maxdepth 1 -type f -name "${base_log}.*" -mtime "+${LOG_RETENTION}" -delete
+  else
+    run_root find "$log_dir" -maxdepth 1 -type f -name "${base_log}.*" -mtime "+${LOG_RETENTION}" -delete
+  fi
+}
+
+task_cleanup() {
+  progress "Limpieza segura"
+  local partial_failure=false
+  if [[ "$CLEAN_CACHE" == true ]]; then
+    if run_root "$DNF_CMD" clean all; then
+      CACHE_CLEANED=true
+    else
+      warn "No se pudo limpiar la caché DNF."
+      partial_failure=true
+    fi
+  else
+    info "Limpieza de caché DNF deshabilitada por configuración."
+  fi
+  if [[ "$REMOVE_ORPHANS" == true ]]; then
+    if run_root "$DNF_CMD" autoremove --assumeyes; then
+      PACKAGES_REMOVED=1
+    else
+      warn "No se pudieron retirar dependencias RPM no usadas."
+      partial_failure=true
+    fi
+  else
+    info "Autoremove DNF deshabilitado por configuración."
+  fi
+  if command_exists flatpak; then
+    run_root flatpak uninstall --system --unused --noninteractive --assumeyes || { warn "Falló la limpieza Flatpak de sistema."; partial_failure=true; }
+    run_as_invoking_user flatpak uninstall --user --unused --noninteractive --assumeyes || { warn "Falló la limpieza Flatpak de usuario."; partial_failure=true; }
+  fi
+  clean_old_logs || { warn "No se pudieron rotar logs antiguos."; partial_failure=true; }
+  ok "Limpieza completada (las herramientas omiten lo que ya no requiere cambios)."
+  [[ "$partial_failure" == false ]]
+}
+
+show_status() {
+  info "Estado de Fedora Maintenance"
+  printf '  Fedora: %s\n' "$(awk -F= '$1 == "PRETTY_NAME" { gsub(/"/, "", $2); print $2; exit }' "${FEDORA_MAINTENANCE_OS_RELEASE:-/etc/os-release}")"
+  printf '  DNF: %s\n' "$DNF_CMD"
+  printf '  Configuración: %s\n' "$CONFIG_LOADED"
+  printf '  Modo RPM configurado: %s\n' "$([[ "$OFFLINE" == true ]] && printf offline || printf online)"
+  dnf_cached_status || true
+  if command_exists flatpak; then
+    local flatpak_updates rc=0
+    if command_exists timeout; then
+      flatpak_updates="$(timeout "${STATUS_TIMEOUT}s" flatpak remote-ls --user --updates 2>/dev/null | wc -l | tr -d ' ')" || rc=$?
+    else
+      flatpak_updates="$(flatpak remote-ls --user --updates 2>/dev/null | wc -l | tr -d ' ')" || rc=$?
+    fi
+    if (( rc == 0 )); then
+      printf '  Flatpak de usuario: %s actualización(es) disponible(s)\n' "$flatpak_updates"
+    else
+      printf '  Flatpak de usuario: estado no disponible\n'
+    fi
+  else
+    printf '  Flatpak: no instalado\n'
+  fi
+  if command_exists fwupdmgr; then
+    printf '  Firmware: disponible mediante fwupdmgr (usa --firmware para comprobar/actualizar)\n'
+  else
+    printf '  Firmware: fwupdmgr no instalado\n'
+  fi
+  if command_exists systemctl && systemctl is-enabled --quiet fedora-maintenance.timer 2>/dev/null; then
+    printf '  Timer: habilitado\n'
+  else
+    printf '  Timer: no habilitado\n'
+  fi
+  if command_exists findmnt; then
+    printf '  Sistema raíz: %s (snapshots: %s)\n' \
+      "$(findmnt -n -o FSTYPE / 2>/dev/null || printf desconocido)" "$ENABLE_SNAPSHOTS"
+  fi
+}
+
+show_systemd_logs() {
+  command_exists journalctl || die "journalctl no está disponible."
+  journalctl -u fedora-maintenance.service -n 40 --no-pager
+}
+
+detect_reboot_required() {
+  [[ "$REBOOT_REQUIRED" == true ]] && return 0
+  local rc=0
+  if [[ "$DNF_CMD" == dnf5 ]]; then
+    "$DNF_CMD" needs-restarting >/dev/null 2>&1 || rc=$?
+  elif command_exists needs-restarting; then
+    needs-restarting -r >/dev/null 2>&1 || rc=$?
+  else
+    "$DNF_CMD" needs-restarting -r >/dev/null 2>&1 || rc=$?
+  fi
+  case "$rc" in
+    0) return 1 ;;
+    1) REBOOT_REQUIRED=true; return 0 ;;
+    *) warn "No se pudo determinar si hace falta reiniciar (código $rc)."; return 1 ;;
+  esac
+}
+
+handle_reboot() {
+  if [[ "$OFFLINE" == true && "$UPDATED_RPM" -eq 1 ]]; then
+    warn "La transacción offline está preparada. Guarda tu trabajo y ejecuta: sudo dnf5 offline reboot"
+    return 0
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    if [[ "$REBOOT_REQUIRED" == true ]]; then
+      warn "[dry-run] Las tareas simuladas podrían requerir reinicio."
+    else
+      info "[dry-run] Se comprobaría si el sistema requiere reinicio."
+    fi
+    return 0
+  fi
+  if ! detect_reboot_required; then
+    info "No se detectó un reinicio pendiente."
+    return 0
+  fi
+  warn "El sistema requiere reinicio para completar el mantenimiento."
+  if [[ "$AUTO_REBOOT" == true ]]; then
+    info "AUTO_REBOOT=true: reinicio en 10 segundos (Ctrl+C para cancelar)."
+    if [[ "$DRY_RUN" == true ]]; then
+      print_command sudo systemctl reboot
+    else
+      sleep 10
+      run_root systemctl reboot
+    fi
+  else
+    info "Reinicia manualmente cuando hayas guardado tu trabajo."
+  fi
+}
+
+format_duration() {
+  local seconds="$1"
+  if (( seconds >= 3600 )); then
+    printf '%dh%dm%ds' "$((seconds / 3600))" "$(((seconds % 3600) / 60))" "$((seconds % 60))"
+  elif (( seconds >= 60 )); then
+    printf '%dm%ds' "$((seconds / 60))" "$((seconds % 60))"
+  else
+    printf '%ds' "$seconds"
+  fi
+}
+
+generate_report() {
+  local started_at="$1" finished_at duration rpm_label flatpak_label firmware_label autoremove_label cache_label
+  finished_at="$(date +%s)"
+  duration="$(format_duration "$((finished_at - started_at))")"
+  rpm_label="$([[ "$UPDATED_RPM" -eq 1 ]] && { [[ "$DRY_RUN" == true ]] && printf simulado || printf completado; } || printf omitido)"
+  flatpak_label="$([[ "$UPDATED_FLATPAK" -eq 1 ]] && { [[ "$DRY_RUN" == true ]] && printf simulado || printf completado; } || printf omitido)"
+  firmware_label="$([[ "$UPDATED_FIRMWARE" -eq 1 ]] && { [[ "$DRY_RUN" == true ]] && printf simulado || printf completado; } || printf omitido)"
+  autoremove_label="$([[ "$PACKAGES_REMOVED" -eq 1 ]] && { [[ "$DRY_RUN" == true ]] && printf simulado || printf completado; } || printf omitido)"
+  cache_label="$([[ "$CACHE_CLEANED" == true ]] && { [[ "$DRY_RUN" == true ]] && printf simulada || printf completada; } || printf omitida)"
+  printf '\n%sResumen de mantenimiento%s\n' "$C_BOLD" "$C_RESET" >&2
+  printf '  RPM:                 %s\n' "$rpm_label" >&2
+  printf '  Flatpak:             %s\n' "$flatpak_label" >&2
+  printf '  Firmware:            %s\n' "$firmware_label" >&2
+  printf '  Autoremove:          %s\n' "$autoremove_label" >&2
+  printf '  Limpieza de caché:   %s\n' "$cache_label" >&2
+  printf '  Reinicio requerido:  %s\n' "$REBOOT_REQUIRED" >&2
+  printf '  Fallos:               %s\n' "$FAILURES" >&2
+  printf '  Duración:             %s\n' "$duration" >&2
+  printf '  Log:                  %s\n' "$LOG_FILE" >&2
+}
+
+interactive_menu() {
+  [[ -t 0 && -t 1 ]] || die "El menú interactivo requiere una terminal."
+  printf '\n%sFedora Maintenance%s\n' "$C_BOLD" "$C_RESET"
+  local options=(
+    "Actualizar RPM"
+    "Actualizar Flatpak"
+    "Actualizar firmware"
+    "Limpieza segura"
+    "Mantenimiento completo"
+    "Ver estado"
+    "Salir"
+  )
+  local choice=""
+  if command_exists gum; then
+    choice="$(gum choose --header 'Selecciona una operación:' "${options[@]}")" || exit 0
+  else
+    PS3="Elige una opción (1-7): "
+    select choice in "${options[@]}"; do
+      [[ -n "$choice" ]] && break
+      warn "Selecciona un número entre 1 y 7."
+    done
+  fi
+
+  case "$choice" in
+    "Actualizar RPM") RUN_UPDATE=true ;;
+    "Actualizar Flatpak") RUN_FLATPAK=true ;;
+    "Actualizar firmware") RUN_FIRMWARE=true ;;
+    "Limpieza segura") RUN_CLEANUP=true ;;
+    "Mantenimiento completo")
+      RUN_UPDATE=true
+      RUN_FLATPAK="$UPDATE_FLATPAK"
+      RUN_FIRMWARE="$UPDATE_FIRMWARE"
+      RUN_CLEANUP=true
+      ;;
+    "Ver estado") STATUS_ONLY=true ;;
+    "Salir") exit 0 ;;
+    *) die "No se recibió una selección válida." ;;
+  esac
+}
+
+write_unit_files() {
+  local tmpdir service timer default_config install_user
+  tmpdir="$(mktemp -d)"
+  service="$tmpdir/fedora-maintenance.service"
+  timer="$tmpdir/fedora-maintenance.timer"
+  default_config="$tmpdir/fedora-maintenance.conf"
+  install_user="${SUDO_USER:-${USER:-root}}"
+  [[ "$install_user" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || install_user=root
+  trap 'rm -rf "$tmpdir"' RETURN
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=Weekly Fedora maintenance managed by dotfiles' \
+    'Wants=network-online.target' \
+    'After=network-online.target' \
+    '' \
+    '[Service]' \
+    'Type=oneshot' \
+    "Environment=FM_MAINTENANCE_USER=${install_user}" \
+    'ExecStart=/usr/local/bin/fedora-maintenance --update --flatpak --cleanup --online --no-firmware --no-reboot --yes --log-file /var/log/fedora-maintenance/maintenance.log' \
+    > "$service"
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=Run Fedora maintenance weekly' \
+    '' \
+    '[Timer]' \
+    'OnCalendar=weekly' \
+    'Persistent=true' \
+    'RandomizedDelaySec=1h' \
+    '' \
+    '[Install]' \
+    'WantedBy=timers.target' \
+    > "$timer"
+  printf '%s\n' \
+    '# Configuración de fedora-maintenance (instalada por dotfiles)' \
+    'AUTO_REBOOT=false' \
+    'UPDATE_FLATPAK=true' \
+    'UPDATE_FIRMWARE=true' \
+    'OFFLINE_UPDATE=false' \
+    'REMOVE_ORPHANS=true' \
+    'CLEAN_CACHE=true' \
+    'LOG_RETENTION=15' \
+    'ENABLE_SNAPSHOTS=true' \
+    'SNAPSHOT_DIR="/.snapshots/fedora-maintenance"' \
+    'CHECK_INTERNET=true' \
+    'STATUS_TIMEOUT=20' \
+    > "$default_config"
+  run_root install -Dm755 "$SCRIPT_PATH" /usr/local/bin/fedora-maintenance
+  if [[ ! -e /etc/fedora-maintenance.conf ]]; then
+    run_root install -Dm644 "$default_config" /etc/fedora-maintenance.conf
+  else
+    info "Se conserva /etc/fedora-maintenance.conf existente."
+  fi
+  run_root install -Dm644 "$service" /etc/systemd/system/fedora-maintenance.service
+  run_root install -Dm644 "$timer" /etc/systemd/system/fedora-maintenance.timer
+  run_root systemctl daemon-reload
+  run_root systemctl enable --now fedora-maintenance.timer
+  ok "Timer instalado. El firmware queda fuera de la tarea semanal por seguridad."
+  # El trap RETURN se hereda por las funciones llamadoras; se desactiva antes
+  # de salir para que `set -u` no intente reutilizar el local ya destruido.
+  trap - RETURN
+  rm -rf "$tmpdir"
+}
+
+remove_unit_files() {
+  run_root systemctl disable --now fedora-maintenance.timer || true
+  run_root rm -f /etc/systemd/system/fedora-maintenance.service /etc/systemd/system/fedora-maintenance.timer
+  run_root systemctl daemon-reload
+  ok "Timer y servicio eliminados. El ejecutable /usr/local/bin/fedora-maintenance se conserva."
+}
+
+parse_args() {
+  while (($#)); do
+    case "$1" in
+      --all) RUN_UPDATE=true; RUN_FLATPAK="$UPDATE_FLATPAK"; RUN_FIRMWARE="$UPDATE_FIRMWARE"; RUN_CLEANUP=true ;;
+      --update|--dnf) RUN_UPDATE=true ;;
+      --flatpak) RUN_FLATPAK=true ;;
+      --firmware) RUN_FIRMWARE=true ;;
+      --no-firmware) RUN_FIRMWARE=false; NO_FIRMWARE_CLI=true ;;
+      --cleanup) RUN_CLEANUP=true ;;
+      --status) STATUS_ONLY=true ;;
+      --logs) SHOW_LOGS=true ;;
+      --interactive) INTERACTIVE=true ;;
+      --offline) OFFLINE=true; OFFLINE_CLI=true ;;
+      --online) OFFLINE=false; OFFLINE_CLI=false ;;
+      --snapshot) ENABLE_SNAPSHOTS=true ;;
+      --no-snapshot) ENABLE_SNAPSHOTS=false ;;
+      --auto-reboot) AUTO_REBOOT=true ;;
+      --no-reboot) AUTO_REBOOT=false ;;
+      -y|--yes) YES=true ;;
+      --dry-run) DRY_RUN=true ;;
+      --config) [[ $# -ge 2 ]] || die "--config requiere una ruta."; shift ;;
+      --log-file) [[ $# -ge 2 ]] || die "--log-file requiere una ruta."; LOG_FILE="$2"; shift ;;
+      --verbose) VERBOSE=true ;;
+      --install-timer) INSTALL_TIMER=true ;;
+      --remove-timer) REMOVE_TIMER=true ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Opción desconocida: $1 (usa --help)." ;;
+    esac
+    shift
+  done
+  [[ "$NO_FIRMWARE_CLI" == true ]] && RUN_FIRMWARE=false
+  [[ "$OFFLINE_CLI" == true && "$RUN_UPDATE" != true ]] && die "--offline requiere --update o --all."
+  [[ "$INSTALL_TIMER" == true && "$REMOVE_TIMER" == true ]] && die "No combines --install-timer y --remove-timer."
+  return 0
+}
+
+main() {
+  discover_config_path "$@"
+  init_config
+  parse_args "$@"
+  validate_fedora
+  trap 'warn "Operación interrumpida por el usuario."; exit 130' INT
+  debug "Config=$CONFIG_LOADED offline=$OFFLINE snapshots=$ENABLE_SNAPSHOTS auto_reboot=$AUTO_REBOOT"
+
+  if [[ "$INSTALL_TIMER" == true ]]; then write_unit_files; return; fi
+  if [[ "$REMOVE_TIMER" == true ]]; then remove_unit_files; return; fi
+  if [[ "$SHOW_LOGS" == true ]]; then show_systemd_logs; return; fi
+  if [[ "$STATUS_ONLY" == true ]]; then show_status; return; fi
+
+  if [[ "$INTERACTIVE" == true || ( "$RUN_UPDATE" == false && "$RUN_FLATPAK" == false && "$RUN_FIRMWARE" == false && "$RUN_CLEANUP" == false ) ]]; then
+    interactive_menu
+    [[ "$STATUS_ONLY" == true ]] && { show_status; return; }
+  fi
+
+  TOTAL_TASKS=0
+  [[ "$RUN_UPDATE" == true ]] && TOTAL_TASKS=$((TOTAL_TASKS + 1))
+  [[ "$RUN_FLATPAK" == true ]] && TOTAL_TASKS=$((TOTAL_TASKS + 1))
+  [[ "$RUN_FIRMWARE" == true ]] && TOTAL_TASKS=$((TOTAL_TASKS + 1))
+  [[ "$RUN_CLEANUP" == true ]] && TOTAL_TASKS=$((TOTAL_TASKS + 1))
+  (( TOTAL_TASKS > 0 )) || die "No hay tareas seleccionadas."
+
+  info "Plan: $TOTAL_TASKS tarea(s) | RPM=$([[ "$OFFLINE" == true ]] && printf offline || printf online) | snapshot=$ENABLE_SNAPSHOTS"
+  info "Configuración efectiva: $CONFIG_LOADED"
+  confirm_changes
+  local started_at
+  started_at="$(date +%s)"
+  info "Inicio: $TOTAL_TASKS tarea(s), dry-run=$DRY_RUN"
+
+  if [[ "$RUN_UPDATE" == true || "$RUN_FLATPAK" == true || "$RUN_FIRMWARE" == true ]]; then
+    validate_internet
+  fi
+  if [[ "$RUN_UPDATE" == true || ( "$RUN_FIRMWARE" == true && -n "$(command -v fwupdmgr 2>/dev/null || true)" ) ]]; then
+    create_pre_update_snapshot
+  fi
+
+  # Limpiar antes de preparar una transacción offline evita borrar después los
+  # paquetes descargados que DNF necesita durante el reinicio.
+  if [[ "$RUN_CLEANUP" == true ]] && ! task_cleanup; then FAILURES=$((FAILURES + 1)); fi
+  if [[ "$RUN_UPDATE" == true ]] && ! task_update; then FAILURES=$((FAILURES + 1)); fi
+  if [[ "$RUN_FLATPAK" == true ]] && ! task_flatpak; then FAILURES=$((FAILURES + 1)); fi
+  if [[ "$RUN_FIRMWARE" == true ]] && ! task_firmware; then FAILURES=$((FAILURES + 1)); fi
+
+  if [[ "$RUN_UPDATE" == true || "$RUN_FIRMWARE" == true ]]; then
+    handle_reboot
+  fi
+  generate_report "$started_at"
+  if (( FAILURES > 0 )); then
+    warn "Finalizado con $FAILURES tarea(s) incompleta(s)."
+    return 1
+  fi
+  ok "Mantenimiento finalizado correctamente."
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

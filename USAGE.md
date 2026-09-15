@@ -18,6 +18,7 @@
   - [img-optimize](#img-optimize)
   - [img-batch-webp](#img-batch-webp)
   - [validate-domain](#validate-domain)
+  - [fedora-maintenance](#fedora-maintenance)
 - [Scripts de configuración (scripts/)](#scripts-de-configuración-scripts)
   - [setup/bootstrap.sh](#setupbootstrapsh)
   - [setup/dev-setup.sh](#setupdev-setupsh)
@@ -319,6 +320,88 @@ validate-domain sub.ejemplo.com
 sudo dnf install bind-utils curl openssl   # Fedora
 sudo apt install dnsutils curl openssl     # Ubuntu/Debian
 ```
+
+---
+
+### `fedora-maintenance`
+
+**Mantenimiento de Fedora con progreso, confirmación e idempotencia**
+
+Actualiza RPM, Flatpaks y firmware, además de limpiar cachés y dependencias ya
+inútiles. El comando detecta Fedora y rechaza Fedora Atomic (`rpm-ostree`) para
+no mezclar gestores de paquetes. Las acciones que modifican el sistema piden
+confirmación; `--dry-run` jamás ejecuta `sudo`.
+
+```bash
+# Menú interactivo (o simplemente: fm / fedora-maintenance)
+fm-menu
+
+# Consultar sin cambios
+fm-status
+
+# Simular el plan completo y consultar logs del timer
+fm-dry
+fm-logs
+
+# Actualizar RPM y Flatpaks, confirmando una vez
+fedora-maintenance --update --flatpak --online --yes
+
+# Ver el mantenimiento completo sin modificar el sistema
+fedora-maintenance --all --dry-run
+
+# Preparar actualización RPM offline con DNF5 (no reinicia solo)
+fedora-maintenance --update --offline --yes
+sudo dnf5 offline reboot    # únicamente cuando estés listo
+```
+
+El flujo completo incluye el preflight de red, snapshot Btrfs previo, limpieza,
+actualizaciones RPM/Flatpak/firmware, detección de reinicio y reporte final. El
+estado de DNF consulta solo metadatos locales, muestra que está trabajando y
+termina después de `STATUS_TIMEOUT`; no oculta una actualización de repositorios.
+
+Los aliases incluidos son `fm`, `fm-menu`, `fm-status`, `fm-dry` y `fm-logs`;
+no agregan `sudo` ni `--yes`, de modo que conservan la confirmación de seguridad.
+Recarga Zsh con `reload` después de actualizar los dotfiles.
+
+La configuración se carga, en este orden, desde
+[`config/fedora-maintenance.conf`](config/fedora-maintenance.conf),
+`/etc/fedora-maintenance.conf` y
+`~/.config/fedora-maintenance/config`; el último valor gana. También puedes
+usar `--config RUTA`. Las opciones disponibles son:
+
+| Opción | Función |
+|---|---|
+| `AUTO_REBOOT` | Permite reinicio automático cuando DNF lo requiere. |
+| `UPDATE_FLATPAK`, `UPDATE_FIRMWARE` | Incluye o excluye esas tareas de `--all`. |
+| `OFFLINE_UPDATE` | Elige actualización RPM offline; `--online` la sobrescribe. |
+| `REMOVE_ORPHANS`, `CLEAN_CACHE` | Controla las dos partes destructivas de limpieza. |
+| `ENABLE_SNAPSHOTS`, `SNAPSHOT_DIR` | Controla el snapshot de la raíz Btrfs. |
+| `CHECK_INTERNET` | Activa el preflight HTTP acotado a 8 segundos. |
+| `LOG_RETENTION` | Días que se conservan logs rotados. |
+| `STATUS_TIMEOUT` | Máximo de segundos de cada consulta de estado. |
+
+> En una instalación anterior puede existir `/etc/fedora-maintenance.conf` con
+> `OFFLINE_UPDATE=true`. `fm-status` muestra el modo efectivo; usa `--online`
+> cuando quieras aplicar una actualización en vivo.
+
+Para automatizar un mantenimiento semanal conservador (RPM + Flatpaks +
+limpieza; firmware excluido), instala el timer. El comando copia la utilidad a
+`/usr/local/bin`, instala una configuración solo si aún no existe, actualiza las
+unidades y es seguro de repetir. El timer fuerza modo online, excluye firmware y
+nunca reinicia automáticamente:
+
+```bash
+sudo fedora-maintenance --install-timer
+systemctl list-timers fedora-maintenance.timer
+journalctl -u fedora-maintenance.service --since today
+
+# Desinstalar el timer y su servicio (conserva el ejecutable instalado)
+sudo fedora-maintenance --remove-timer
+```
+
+**Dependencias:** `dnf` o `dnf5`; opcionales: `flatpak` y `fwupd`/`fwupdmgr`.
+Si está instalado, `gum` mejora el menú interactivo; sin él se usa el selector
+estándar de Bash.
 
 ---
 

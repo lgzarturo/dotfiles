@@ -58,6 +58,14 @@ alias reload='source ~/.zshrc && echo "zsh recargado"'
 alias paths='echo $PATH | tr ":" "\n"'
 alias newproj='new-agent-project'
 
+# Mantenimiento Fedora: los aliases no añaden --yes ni privilegios.
+# Así fm siempre conserva el prompt de confirmación antes de cambiar el sistema.
+alias fm='fedora-maintenance'
+alias fm-menu='fedora-maintenance --interactive'
+alias fm-status='fedora-maintenance --status'
+alias fm-dry='fedora-maintenance --all --dry-run'
+alias fm-logs='fedora-maintenance --logs'
+
 # ─── Runtimes ─────────────────────────────
 [ -f ~/.local/bin/mise ] && eval "$(~/.local/bin/mise activate zsh 2>/dev/null)"
 

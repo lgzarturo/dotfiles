@@ -190,12 +190,17 @@ matrix-fetch --no-color   # sin secuencias de escape ANSI
 ```bash
 ./scripts/verify.sh
 ./scripts/maintenance/repo-security-check.sh
+./tests/test-fedora-maintenance.sh
 ```
 
 - `./scripts/verify.sh` verifica el entorno instalado.
 - `./scripts/maintenance/repo-security-check.sh` audita el repositorio en busca
   de secretos, rutas personales hardcodeadas y patrones inseguros de descarga +
   ejecución remota.
+- `fedora-maintenance` ofrece mantenimiento interactivo de Fedora con
+  configuración, snapshots y reporte: `fm-menu`, `fm-status`, `fm-dry` o
+  `fm-logs`. Consulta la
+  [guía de uso](USAGE.md#fedora-maintenance) antes de instalar el timer semanal.
 
 ## 📚 Documentación extendida
 
@@ -204,6 +209,7 @@ matrix-fetch --no-color   # sin secuencias de escape ANSI
 - [Setup por sistema](docs/PER-SETUP.md)
 - [Configuración local de Git (skip-worktree)](GIT-LOCAL-CONFIG.md)
 - [FAQ](docs/FAQ.md)
+- [Inventario y migración de scripts](docs/SCRIPT-MIGRATION.md)
 
 ## ⚖️ Licencia
 
