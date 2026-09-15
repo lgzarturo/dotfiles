@@ -202,6 +202,7 @@ matrix-fetch --no-color   # sin secuencias de escape ANSI
 - [Arquitectura](docs/ARCHITECTURE.md)
 - [Hardware soportado](docs/HARDWARE.md)
 - [Setup por sistema](docs/PER-SETUP.md)
+- [Configuración local de Git (skip-worktree)](GIT-LOCAL-CONFIG.md)
 - [FAQ](docs/FAQ.md)
 
 ## ⚖️ Licencia

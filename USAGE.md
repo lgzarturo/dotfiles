@@ -235,21 +235,36 @@ brew install imagemagick          # macOS
 
 ### `img-optimize`
 
-**Optimizar una imagen PNG a WebP en múltiples resoluciones**
+**Optimizar imágenes PNG y JPG para redes sociales (sin pérdida de calidad)**
 
-Genera automáticamente variantes responsivas: desktop, tablet y mobile.
+Reduce el peso del archivo eliminando metadatos (EXIF, GPS), limitando la resolución a un máximo de 2K (2048px) y aplicando compresión optimizada sin perder calidad visual.
 
 ```bash
-img-optimize hero.png
-img-optimize banner.png
+# Optimización básica (genera <nombre>-optimized.<ext>)
+img-optimize foto.jpg
+img-optimize captura.png
+
+# Con calidad JPEG personalizada (1-100)
+img-optimize foto.jpg 80
+
+# Modificar directamente el archivo original (in-place)
+img-optimize -i foto.jpg
+
+# Guardar en un directorio específico
+img-optimize -o ./social/ foto.jpg banner.png
+
+# Ajustar resolución máxima y calidad
+img-optimize -m 1920 -q 80 *.jpg
 ```
 
-**Genera en `./processed_assets/`:**
-- `hero-desktop.webp` — 1920px, calidad 85
-- `hero-tablet.webp` — 1024px, calidad 80
-- `hero-mobile.webp` — 600px, calidad 75
+**Qué hace:**
+1. Elimina metadatos EXIF, GPS y perfiles de cámara para privacidad y menor peso.
+2. Aplica `-auto-orient` previo para preservar la orientación correcta en fotos de smartphone.
+3. Escala a un máximo de 2K (2048px) preservando la relación de aspecto (sin sobreescalar imágenes menores).
+4. Para JPG: compresión progresiva (Plane), muestreo de croma 4:2:0 y perfil sRGB.
+5. Para PNG: compresión zlib nivel 9 adaptativa (lossless) y preservación de canal alfa.
 
-**Dependencias:** ImageMagick (ver [png2webp](#png2webp))
+**Dependencias:** ImageMagick 7+ (`magick`) o ImageMagick 6 (`convert`) (ver [png2webp](#png2webp))
 
 ---
 

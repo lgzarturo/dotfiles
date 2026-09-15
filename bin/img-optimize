@@ -1,91 +1,452 @@
 #!/usr/bin/env bash
 #
-# img-optimize — Image optimizer: converts a PNG to responsive WebP variants
+# img-optimize — Optimize PNG and JPG images for social media sharing
 #
-# Generates desktop (1920px), tablet (1024px), and mobile (600px) WebP versions
-# of an input image, suitable for blog/CMS use.
+# Strips metadata (EXIF, GPS, camera details), limits resolution to 2K (max 2048px),
+# and reduces file size without losing visual quality.
 #
-# Usage: img-optimize <input-image.png> [output-dir]
+# Usage:
+#   img-optimize <image> [output]
+#   img-optimize [options] <image...>
 #
-# Dependencies: ImageMagick (convert command)
+# Arguments:
+#   image       Input PNG or JPG file (required)
+#   output      Output file or destination directory (optional)
+#               Default: <name>-optimized.<ext> in the same directory.
+#               If an integer (1-100), interpreted as JPEG quality.
+#
+# Options:
+#   -i, --inplace           Overwrite original file in-place (safe atomic replacement)
+#   -o, --output <path>     Output file path or destination directory
+#   -q, --quality <1-100>   JPEG compression quality (default: 85)
+#   -m, --max-res <px>      Maximum width/height in pixels (default: 2048 for 2K)
+#   -h, --help              Show this help message
+#
+# Examples:
+#   img-optimize photo.jpg
+#   img-optimize banner.png
+#   img-optimize photo.jpg 90
+#   img-optimize -i photo.jpg
+#   img-optimize -o ./social/ photo.jpg
+#   img-optimize -q 80 -m 2048 *.jpg *.png
+#
+# Output:
+#   By default, creates an optimized file alongside the original:
+#   photo.jpg -> photo-optimized.jpg
+#   photo.png -> photo-optimized.png
+#
+# Dependencies: ImageMagick >= 7 (magick command)
 #   Install hints:
-#     Fedora/RHEL:  sudo dnf install ImageMagick
+#     Fedora/RHEL:   sudo dnf install ImageMagick
 #     Ubuntu/Debian: sudo apt install imagemagick
-#     Arch:         sudo pacman -S imagemagick
-#     macOS:        brew install imagemagick
+#     Arch:          sudo pacman -S imagemagick
+#     macOS:         brew install imagemagick
 #
 # Cross-distro: works wherever ImageMagick is installed.
 
 set -euo pipefail
 
-# ── Color helpers ─────────────────────────────────────────────────────────────
-GREEN='\033[0;32m'
-NC='\033[0m'
-if [[ ! -t 1 ]]; then
+# ── Colors & formatting ───────────────────────────────────────────────────────
+if [[ -t 1 ]]; then
+  GREEN='\033[0;32m'
+  YELLOW='\033[0;33m'
+  RED='\033[0;31m'
+  CYAN='\033[0;36m'
+  BOLD='\033[1m'
+  NC='\033[0m'
+else
   GREEN=''
+  YELLOW=''
+  RED=''
+  CYAN=''
+  BOLD=''
   NC=''
 fi
 
 # ── Dependency check ──────────────────────────────────────────────────────────
-if ! command -v convert &>/dev/null; then
-  echo "Error: 'convert' (ImageMagick) is not installed." >&2
-  echo "  Fedora/RHEL:   sudo dnf install ImageMagick" >&2
-  echo "  Ubuntu/Debian: sudo apt install imagemagick" >&2
-  echo "  Arch:          sudo pacman -S imagemagick" >&2
-  echo "  macOS:         brew install imagemagick" >&2
+MAGICK_CMD="magick"
+if ! command -v magick &>/dev/null; then
+  if command -v convert &>/dev/null; then
+    MAGICK_CMD="convert"
+  else
+    echo -e "${RED}Error: 'magick' (ImageMagick 7+) is not installed.${NC}" >&2
+    echo "  Fedora/RHEL:   sudo dnf install ImageMagick" >&2
+    echo "  Ubuntu/Debian: sudo apt install imagemagick" >&2
+    echo "  Arch:          sudo pacman -S imagemagick" >&2
+    echo "  macOS:         brew install imagemagick" >&2
+    exit 1
+  fi
+fi
+
+# ── Defaults & Configuration ──────────────────────────────────────────────────
+DEFAULT_QUALITY=85
+DEFAULT_MAX_RES=2048
+
+QUALITY="$DEFAULT_QUALITY"
+MAX_RES="$DEFAULT_MAX_RES"
+INPLACE=false
+OUTPUT_ARG=""
+FILES=()
+TEMP_FILES=()
+
+# ── Cleanup trap ──────────────────────────────────────────────────────────────
+cleanup() {
+  local tmp
+  for tmp in "${TEMP_FILES[@]}"; do
+    [[ -n "$tmp" && -f "$tmp" ]] && rm -f "$tmp" || true
+  done
+  return 0
+}
+trap cleanup EXIT INT TERM
+
+# ── Help message ──────────────────────────────────────────────────────────────
+show_help() {
+  cat << EOF
+img-optimize — Optimize PNG and JPG images for social media sharing
+
+Strips metadata (EXIF/GPS), limits resolution to 2K (max 2048px), and
+reduces file size without losing visual quality.
+
+Usage:
+  $(basename "$0") <image> [output]
+  $(basename "$0") [options] <image...>
+
+Arguments:
+  <image>                 Input image file (.png, .jpg, .jpeg)
+  [output]                Output file or directory (optional)
+                          Default: <name>-optimized.<ext> in the same directory.
+                          If an integer (1-100), interpreted as JPEG quality.
+
+Options:
+  -i, --inplace           Overwrite original file in-place (safe atomic replacement)
+  -o, --output <path>     Output file path or destination directory
+  -q, --quality <1-100>   JPEG compression quality (default: 85)
+  -m, --max-res <px>      Max dimension in pixels (default: 2048 for 2K)
+  -h, --help              Show this help message
+
+Examples:
+  $(basename "$0") photo.jpg
+  $(basename "$0") banner.png
+  $(basename "$0") photo.jpg 90
+  $(basename "$0") -i photo.jpg
+  $(basename "$0") -o ./social/ photo.jpg
+  $(basename "$0") -q 80 -m 2048 *.jpg *.png
+EOF
+}
+
+# ── Helper functions ──────────────────────────────────────────────────────────
+get_file_size() {
+  wc -c < "$1" | tr -d ' '
+}
+
+human_size() {
+  local bytes=$1
+  if [[ $bytes -lt 1024 ]]; then
+    echo "${bytes} B"
+  elif [[ $bytes -lt 1048576 ]]; then
+    awk "BEGIN {printf \"%.1f KB\", $bytes/1024}"
+  else
+    awk "BEGIN {printf \"%.2f MB\", $bytes/1048576}"
+  fi
+}
+
+calc_savings() {
+  local orig=$1
+  local new=$2
+  if [[ $orig -le 0 ]]; then
+    echo "0%"
+    return
+  fi
+  awk "BEGIN {
+    diff = $orig - $new
+    pct = (diff / $orig) * 100
+    if (pct > 0) printf \"-%.1f%%\", pct
+    else if (pct < 0) printf \"+%.1f%%\", -pct
+    else printf \"0%%\"
+  }"
+}
+
+detect_format() {
+  local file="$1"
+  local fmt
+  fmt="$("$MAGICK_CMD" identify -format "%m" "${file}[0]" 2>/dev/null || true)"
+  case "${fmt^^}" in
+    PNG)
+      echo "PNG"
+      ;;
+    JPEG|JPG)
+      echo "JPEG"
+      ;;
+    *)
+      local ext="${file##*.}"
+      local ext_lower="${ext,,}"
+      if [[ "$ext_lower" == "png" ]]; then
+        echo "PNG"
+      elif [[ "$ext_lower" == "jpg" || "$ext_lower" == "jpeg" ]]; then
+        echo "JPEG"
+      else
+        echo "UNSUPPORTED"
+      fi
+      ;;
+  esac
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    -i|--inplace|--overwrite)
+      INPLACE=true
+      shift
+      ;;
+    -o|--output)
+      if [[ $# -lt 2 ]]; then
+        echo -e "${RED}Error: option '$1' requires an argument.${NC}" >&2
+        exit 1
+      fi
+      OUTPUT_ARG="$2"
+      shift 2
+      ;;
+    -q|--quality)
+      if [[ $# -lt 2 ]]; then
+        echo -e "${RED}Error: option '$1' requires an argument (1-100).${NC}" >&2
+        exit 1
+      fi
+      QUALITY="$2"
+      shift 2
+      ;;
+    -m|--max-res)
+      if [[ $# -lt 2 ]]; then
+        echo -e "${RED}Error: option '$1' requires an argument (e.g. 2048).${NC}" >&2
+        exit 1
+      fi
+      MAX_RES="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        FILES+=("$1")
+        shift
+      done
+      break
+      ;;
+    -*)
+      echo -e "${RED}Error: unknown option: $1${NC}" >&2
+      echo "Use --help for usage information." >&2
+      exit 1
+      ;;
+    *)
+      FILES+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Positional shorthand handling:
+# If exactly 2 positional arguments were passed without explicit flags:
+# - Case 1: second arg is integer 1-100 -> treat as quality
+# - Case 2: second arg is non-existing file or directory -> treat as output
+if [[ -z "$OUTPUT_ARG" && "$INPLACE" == "false" && ${#FILES[@]} -eq 2 ]]; then
+  if [[ "${FILES[1]}" =~ ^[0-9]+$ ]] && [[ "${FILES[1]}" -ge 1 && "${FILES[1]}" -le 100 ]]; then
+    QUALITY="${FILES[1]}"
+    FILES=("${FILES[0]}")
+  elif [[ ! -e "${FILES[1]}" ]]; then
+    OUTPUT_ARG="${FILES[1]}"
+    FILES=("${FILES[0]}")
+  elif [[ -d "${FILES[1]}" ]]; then
+    OUTPUT_ARG="${FILES[1]}"
+    FILES=("${FILES[0]}")
+  fi
+fi
+
+if [[ ${#FILES[@]} -eq 0 ]]; then
+  show_help >&2
   exit 1
 fi
 
-# ── Argument handling ─────────────────────────────────────────────────────────
-INPUT_FILE="${1:-}"
-OUTPUT_DIR="${2:-./processed_assets}"
-
-if [[ -z "$INPUT_FILE" ]]; then
-  echo "Error: input PNG file is required." >&2
-  echo "Usage: $(basename "$0") <input-image.png> [output-dir]" >&2
+if ! [[ "$QUALITY" =~ ^[0-9]+$ ]] || [[ "$QUALITY" -lt 1 || "$QUALITY" -gt 100 ]]; then
+  echo -e "${RED}Error: quality must be an integer between 1 and 100 (got: $QUALITY)${NC}" >&2
   exit 1
 fi
 
-if [[ ! -f "$INPUT_FILE" ]]; then
-  echo "Error: file not found: $INPUT_FILE" >&2
+if ! [[ "$MAX_RES" =~ ^[0-9]+$ ]] || [[ "$MAX_RES" -lt 1 ]]; then
+  echo -e "${RED}Error: max-res must be a positive integer (got: $MAX_RES)${NC}" >&2
   exit 1
 fi
 
-# Extract base name without extension
-FILENAME=$(basename -- "$INPUT_FILE")
-NAME="${FILENAME%.*}"
+# ── Image processing ──────────────────────────────────────────────────────────
+TOTAL_ORIG_BYTES=0
+TOTAL_NEW_BYTES=0
+SUCCESS_COUNT=0
+FAIL_COUNT=0
 
-echo -e "${GREEN}🚀 Processing image: $NAME${NC}"
+optimize_single_file() {
+  local input="$1"
+  local target_out="$2"
 
-# Create output directory if it doesn't exist
-mkdir -p "$OUTPUT_DIR"
+  if [[ ! -f "$input" ]]; then
+    echo -e "${RED}Error: file not found: $input${NC}" >&2
+    return 1
+  fi
 
-# ── Generate responsive WebP variants ─────────────────────────────────────────
+  local format
+  format="$(detect_format "$input")"
+  if [[ "$format" == "UNSUPPORTED" ]]; then
+    echo -e "${RED}Error: unsupported format in '$input'. Only PNG and JPG/JPEG files are supported.${NC}" >&2
+    return 1
+  fi
 
-# 1. Desktop — 1920px wide, high quality
-echo "   ... Generating Desktop variant (1920px)"
-convert "$INPUT_FILE" \
-  -resize 1920x \
-  -quality 85 \
-  -define webp:lossless=false \
-  "${OUTPUT_DIR}/${NAME}-desktop.webp"
+  local orig_dims
+  orig_dims="$("$MAGICK_CMD" identify -format "%wx%h" "${input}[0]" 2>/dev/null || echo "unknown")"
+  local orig_size
+  orig_size="$(get_file_size "$input")"
 
-# 2. Tablet — 1024px wide, medium quality
-echo "   ... Generating Tablet variant (1024px)"
-convert "$INPUT_FILE" \
-  -resize 1024x \
-  -quality 80 \
-  "${OUTPUT_DIR}/${NAME}-tablet.webp"
+  local target_dir
+  target_dir="$(dirname "$target_out")"
+  mkdir -p "$target_dir"
 
-# 3. Mobile — 600px wide, high compression for fast loading
-echo "   ... Generating Mobile variant (600px)"
-convert "$INPUT_FILE" \
-  -resize 600x \
-  -quality 75 \
-  -strip \
-  "${OUTPUT_DIR}/${NAME}-mobile.webp"
+  # Create safe temporary file in the target directory for atomic write
+  local ext="${input##*.}"
+  local tmp_file
+  tmp_file="$(mktemp "${target_dir}/.tmp-imgopt-XXXXXX.${ext,,}")"
+  TEMP_FILES+=("$tmp_file")
 
-echo -e "${GREEN}✅ Done! Images saved to $OUTPUT_DIR${NC}"
-echo "   - ${NAME}-desktop.webp"
-echo "   - ${NAME}-tablet.webp"
-echo "   - ${NAME}-mobile.webp"
+  if [[ "$format" == "PNG" ]]; then
+    # PNG: lossless optimization, strip metadata, max 2K, sRGB, 8-bit depth, max zlib compression
+    "$MAGICK_CMD" "$input" \
+      -auto-orient \
+      -colorspace sRGB \
+      -strip \
+      -resize "${MAX_RES}x${MAX_RES}>" \
+      -depth 8 \
+      -quality 95 \
+      -define png:compression-filter=5 \
+      -define png:compression-level=9 \
+      -define png:compression-strategy=1 \
+      "$tmp_file"
+  else
+    # JPEG: strip metadata, max 2K, quality 85, progressive interlace, 4:2:0 subsampling, sRGB
+    "$MAGICK_CMD" "$input" \
+      -auto-orient \
+      -colorspace sRGB \
+      -strip \
+      -resize "${MAX_RES}x${MAX_RES}>" \
+      -sampling-factor 4:2:0 \
+      -quality "$QUALITY" \
+      -interlace Plane \
+      "$tmp_file"
+  fi
+
+  if [[ ! -s "$tmp_file" ]]; then
+    echo -e "${RED}Error: optimization failed for $input (empty output).${NC}" >&2
+    rm -f "$tmp_file"
+    return 1
+  fi
+
+  # Optional extra lossless pass if secondary tools are present on the system
+  if [[ "$format" == "PNG" ]]; then
+    if command -v oxipng &>/dev/null; then
+      oxipng -o 2 --strip all --quiet "$tmp_file" 2>/dev/null || true
+    elif command -v optipng &>/dev/null; then
+      optipng -o2 -strip all -quiet "$tmp_file" 2>/dev/null || true
+    fi
+  else
+    if command -v jpegoptim &>/dev/null; then
+      jpegoptim --strip-all -q "$tmp_file" 2>/dev/null || true
+    fi
+  fi
+
+  # Ensure proper readable permissions (mktemp defaults to 0600)
+  chmod --reference="$input" "$tmp_file" 2>/dev/null || chmod 644 "$tmp_file"
+
+  local new_dims
+  new_dims="$("$MAGICK_CMD" identify -format "%wx%h" "${tmp_file}[0]" 2>/dev/null || echo "unknown")"
+  local new_size
+  new_size="$(get_file_size "$tmp_file")"
+
+  # Move atomic replacement into destination
+  mv -f "$tmp_file" "$target_out"
+
+  # Update totals
+  TOTAL_ORIG_BYTES=$((TOTAL_ORIG_BYTES + orig_size))
+  TOTAL_NEW_BYTES=$((TOTAL_NEW_BYTES + new_size))
+  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+
+  local savings
+  savings="$(calc_savings "$orig_size" "$new_size")"
+  local orig_h
+  orig_h="$(human_size "$orig_size")"
+  local new_h
+  new_h="$(human_size "$new_size")"
+
+  if [[ ${#FILES[@]} -eq 1 ]]; then
+    echo -e "${GREEN}✓ Optimized:${NC} ${BOLD}$target_out${NC}"
+    echo -e "  Resolution: ${orig_dims} → ${new_dims} (max ${MAX_RES}px)"
+    echo -e "  File size:  ${orig_h} → ${new_h} (${savings})"
+    echo -e "  Metadata:   stripped (clean for social media)"
+  else
+    echo -e "  ${GREEN}✓${NC} ${BOLD}$(basename "$input")${NC}: ${orig_dims} → ${new_dims} | ${orig_h} → ${new_h} (${savings}) → $target_out"
+  fi
+
+  return 0
+}
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+if [[ ${#FILES[@]} -gt 1 ]]; then
+  echo -e "${CYAN}Optimizing ${#FILES[@]} image(s)...${NC}"
+fi
+
+for file in "${FILES[@]}"; do
+  # Determine target output path
+  target_file=""
+  dir="$(dirname "$file")"
+  filename="$(basename "$file")"
+  base="${filename%.*}"
+  ext="${filename##*.}"
+
+  if [[ "$INPLACE" == "true" ]]; then
+    target_file="$file"
+  elif [[ -n "$OUTPUT_ARG" ]]; then
+    if [[ -d "$OUTPUT_ARG" || "$OUTPUT_ARG" == */ ]]; then
+      # Output argument is a directory
+      target_file="${OUTPUT_ARG%/}/${filename}"
+      # If output directory matches input directory, avoid unintended overwrite unless inplace
+      if [[ "$target_file" == "$file" ]]; then
+        target_file="${OUTPUT_ARG%/}/${base}-optimized.${ext}"
+      fi
+    else
+      if [[ ${#FILES[@]} -eq 1 ]]; then
+        target_file="$OUTPUT_ARG"
+      else
+        # Multiple files cannot write to the same single file path
+        echo -e "${RED}Error: cannot write multiple images into a single file path '$OUTPUT_ARG'. Use a directory instead.${NC}" >&2
+        exit 1
+      fi
+    fi
+  else
+    target_file="${dir}/${base}-optimized.${ext}"
+  fi
+
+  if ! optimize_single_file "$file" "$target_file"; then
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
+done
+
+if [[ ${#FILES[@]} -gt 1 ]]; then
+  total_savings="$(calc_savings "$TOTAL_ORIG_BYTES" "$TOTAL_NEW_BYTES")"
+  total_orig_h="$(human_size "$TOTAL_ORIG_BYTES")"
+  total_new_h="$(human_size "$TOTAL_NEW_BYTES")"
+  echo ""
+  echo -e "${GREEN}${BOLD}Done!${NC} ${SUCCESS_COUNT} image(s) optimized successfully. (${FAIL_COUNT} failed)"
+  echo -e "Total size: ${total_orig_h} → ${total_new_h} (${total_savings})"
+fi
+
+if [[ $FAIL_COUNT -gt 0 ]]; then
+  exit 1
+fi
+
+exit 0
