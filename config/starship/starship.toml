@@ -31,13 +31,6 @@ synthwave_orange  = "#FF9900"
 dark_bg       = "#050905"
 text_light    = "#AAFFB0"
 
-# Presets básicos para un look limpio
-add_newline = false
-
-[character]
-success_symbol = "[➜](bold green)"
-error_symbol = "[✗](bold red)"
-
 # ── OS ────────────────────────────────────────────────────────────────────
 [os]
 disabled = false
@@ -104,29 +97,44 @@ style  = "fg:matrix_dark"
 
 # ── Lenguajes ─────────────────────────────────────────────────────────────
 [python]
-symbol = " "
+symbol = "🐍"
 style  = "bold fg:synthwave_cyan"
 format = "[$symbol($version )]($style)"
 
 [rust]
-symbol = " "
+symbol = "🌾"
 style  = "bold fg:synthwave_orange"
 format = "[$symbol($version )]($style)"
 
 [nodejs]
-symbol = " "
+symbol = "🤖"
 style  = "bold fg:matrix_green"
 format = "[$symbol($version )]($style)"
 
 [golang]
-symbol = " "
+symbol = "🏛️"
 style  = "bold fg:synthwave_cyan"
 format = "[$symbol($version )]($style)"
 
 [docker_context]
-symbol = " "
+symbol = "🐳"
 style  = "bold fg:synthwave_cyan"
 format = "[$symbol$context]($style) "
+
+[java]
+symbol = "☕"
+style  = "bold fg:matrix_green"
+format = "[$symbol($version )]($style)"
+
+[kotlin]
+symbol = "🅺"
+style  = "bold fg:synthwave_cyan"
+format = "[$symbol($version )]($style)"
+
+[php]
+symbol = "🍺"
+style  = "bold fg:synthwave_cyan"
+format = "[$symbol($version )]($style)"
 
 # ── Tiempo de ejecución ───────────────────────────────────────────────────
 [cmd_duration]
