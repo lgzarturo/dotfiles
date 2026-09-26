@@ -31,6 +31,13 @@ synthwave_orange  = "#FF9900"
 dark_bg       = "#050905"
 text_light    = "#AAFFB0"
 
+# Presets básicos para un look limpio
+add_newline = false
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[✗](bold red)"
+
 # ── OS ────────────────────────────────────────────────────────────────────
 [os]
 disabled = false

@@ -122,3 +122,7 @@ export PNPM_HOME="$HOME/.local/share/pnpm"
 
 case ":$PATH:" in *":$PNPM_HOME:"*) ;; *) export PATH="$PNPM_HOME:$PATH" ;; esac
 source "$HOME/.config/matrix-aliases.sh"
+
+. "$HOME/.atuin/bin/env"
+
+eval "$(atuin init zsh)"
