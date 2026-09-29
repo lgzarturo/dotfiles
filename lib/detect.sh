@@ -161,10 +161,10 @@ detect_cpu() {
       ;;
 
     macos)
-      DOTFILES_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null)"
-      DOTFILES_CPU_VENDOR="$(sysctl -n machdep.cpu.vendor 2>/dev/null)"
-      DOTFILES_CPU_CORES_PHYSICAL="$(sysctl -n hw.physicalcpu 2>/dev/null)"
-      DOTFILES_CPU_CORES_LOGICAL="$(sysctl -n hw.logicalcpu 2>/dev/null)"
+      DOTFILES_CPU_MODEL="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
+      DOTFILES_CPU_VENDOR="$(sysctl -n machdep.cpu.vendor 2>/dev/null || true)"
+      DOTFILES_CPU_CORES_PHYSICAL="$(sysctl -n hw.physicalcpu 2>/dev/null || true)"
+      DOTFILES_CPU_CORES_LOGICAL="$(sysctl -n hw.logicalcpu 2>/dev/null || true)"
       DOTFILES_CPU_THREADS="$DOTFILES_CPU_CORES_LOGICAL"
       ;;
   esac
@@ -196,7 +196,7 @@ detect_ram() {
       ram_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)"
       ;;
     macos)
-      ram_kb="$(( $(sysctl -n hw.memsize 2>/dev/null) / 1024 ))"
+      ram_kb="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 ))"
       ;;
   esac
   if [ -n "$ram_kb" ] && [ "$ram_kb" -gt 0 ]; then
@@ -245,8 +245,9 @@ detect_form_factor() {
     macos)
       # macOS no expone fácil. Asumimos macbook si modelo contiene MacBook
       local model
-      model="$(sysctl -n hw.model 2>/dev/null)"
-      if [[ "$model" == *MacBook* ]]; then
+      model="$(sysctl -n hw.model 2>/dev/null || true)"
+      # Apple Silicon reporta "Mac14,2" — la batería interna es la señal fiable
+      if [[ "$model" == *MacBook* ]] || pmset -g batt 2>/dev/null | grep -q InternalBattery; then
         DOTFILES_IS_LAPTOP=1
       fi
       ;;
@@ -283,7 +284,7 @@ detect_swap() {
       DOTFILES_SWAP_GB=$(( (total_kb + 1024*1024 - 1) / (1024*1024) ))
       ;;
     macos)
-      DOTFILES_SWAP_GB="$(sysctl -n vm.swapusage 2>/dev/null | awk -F'=' '{print $2}' | awk '{print $1}')"
+      DOTFILES_SWAP_GB="$(sysctl -n vm.swapusage 2>/dev/null | awk -F'=' '{print $2}' | awk '{print $1}' || true)"
       DOTFILES_SWAP_GB="${DOTFILES_SWAP_GB:-0}"
       ;;
   esac

@@ -28,9 +28,11 @@ DOTFILES_BACKUP_DIR="${DOTFILES_BACKUP_DIR:-$HOME/.dotfiles-backup/$(date +%Y%m%
 # bash falla con `$'\r': command not found` en cualquier línea con CRLF.
 if command -v sed >/dev/null 2>&1; then
   for _f in "$LIB_DIR"/*.sh; do
-    [ -f "$_f" ] && sed -i 's/\r$//' "$_f" 2>/dev/null || true
+    [ -f "$_f" ] && grep -q $'\r' "$_f" 2>/dev/null || continue
+    _tmp="$(mktemp)" && tr -d '\r' < "$_f" > "$_tmp" && cat "$_tmp" > "$_f"
+    rm -f "$_tmp"
   done
-  unset _f
+  unset _f _tmp
 fi
 
 # ─── Carga librerías ───────────────────────────────────────
@@ -266,7 +268,7 @@ step_backup() {
   for f in "${files[@]}"; do
     if [ -e "$f" ] && [ ! -L "$f" ]; then
       local rel
-      rel="$(realpath --relative-to="$HOME" "$f" 2>/dev/null || echo "$f")"
+      rel="${f#"$HOME"/}"
       local dest="$DOTFILES_BACKUP_DIR/$rel"
       mkdir -p "$(dirname "$dest")"
       cp -a "$f" "$dest"

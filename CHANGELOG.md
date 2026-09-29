@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **macOS**: `./setup.sh` terminaba en silencio tras `dry-run:` porque `sysctl -n machdep.cpu.vendor` no existe en Apple Silicon y `set -e`/`pipefail` abortaba en `detect_hardware`. Las lecturas de `sysctl` en `lib/detect.sh` ya no son fatales.
+- **macOS**: detección de portátil vía `pmset` (Apple Silicon reporta `Mac14,2`, no `MacBook`).
+- `--dry-run` ya no ejecuta `brew update`/`brew install` (`pkg_update`/`pkg_install` respetan el modo dry-run).
+- `setup.sh`: normalización CRLF sin `sed -i` (incompatible con BSD sed) y backup sin `realpath --relative-to`.
+
 ### Added
 - **`matrix-fetch` step** in `setup.sh` and `setup.ps1`: fastfetch ultrarrápido (<15ms) estilo Matrix que se ejecuta automáticamente al abrir una ventana de terminal interactiva.
   - Muestra métricas completas de hardware y sistema (Host, OS, Kernel, Uptime, CPU modelo y núcleos, RAM y disco con barras de progreso estilo bloque digital, carga del sistema).

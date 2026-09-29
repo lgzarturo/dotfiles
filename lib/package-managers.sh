@@ -3,6 +3,10 @@
 # Detecta el gestor y expone funciones: pkg_update, pkg_install, pkg_exists, pkg_add_repo
 
 pkg_update() {
+  if [ "${DOTFILES_DRY_RUN:-false}" = "true" ]; then
+    printf '  [dry-run] pkg_update (%s)\n' "$DOTFILES_PKG_MANAGER"
+    return 0
+  fi
   case "$DOTFILES_PKG_MANAGER" in
     dnf|dnf5)
       sudo_run "$DOTFILES_PKG_MANAGER" check-update -y >/dev/null 2>&1 || true
@@ -32,6 +36,10 @@ pkg_update() {
 pkg_install() {
   local pkgs=("$@")
   [ "${#pkgs[@]}" -eq 0 ] && return 0
+  if [ "${DOTFILES_DRY_RUN:-false}" = "true" ]; then
+    printf '  [dry-run] pkg_install %s\n' "${pkgs[*]}"
+    return 0
+  fi
 
   case "$DOTFILES_PKG_MANAGER" in
     dnf|dnf5)
