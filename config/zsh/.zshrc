@@ -35,7 +35,7 @@ fi
 alias ll='eza -al --group --git --icons'
 alias ls='eza --icons'
 alias cat='bat --paging=never --style=plain'
-alias grep='rg'
+#alias grep='rg'
 # No alias find→fd: rompe scripts (p.ej. SDKMAN usa find -type f;
 # fd interpreta -type como --type ype).
 alias ff='fd'
